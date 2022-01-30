@@ -1,0 +1,11 @@
+[package]
+name = "single-file-btree"
+version = "0.1.0"
+edition = "2021"
+authors = ["Thomas Krause <thomaskrause@posteo.de>"]
+license = "Apache-2.0"
+
+
+[dependencies]
+memmap2 = "0.5"
+byte-pool = "0.2"
