@@ -1,5 +1,4 @@
 use crate::error::Result;
-use byte_pool::Poolable;
 use memmap2::MmapMut;
 use packed_struct::prelude::*;
 use std::{fs::OpenOptions, io::Write, path::PathBuf, mem::size_of};
@@ -56,9 +55,6 @@ impl MemoryMappedFile {
         Ok(MemoryMappedFile { mmap, path })
     }
 
-    pub fn len(&self) -> usize {
-        self.mmap.len()
-    }
 
     fn metadata(&self) -> Result<Metadata> {
         let md = Metadata::unpack(&self.mmap[0..size_of::<Metadata>()].try_into()?)?;
@@ -103,16 +99,6 @@ impl MemoryMappedFile {
     }
 }
 
-impl Poolable for MemoryMappedFile {
-    fn capacity(&self) -> usize {
-        todo!()
-    }
-
-    fn alloc(size: usize) -> Self {
-        todo!()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -127,21 +113,21 @@ mod tests {
         }
 
         let mut m = MemoryMappedFile::open(&path).unwrap();
-        assert_eq!(4096, m.len());
+        assert_eq!(4096, m.mmap.len());
 
         // Don't grow if not necessary
         m.grow(128).unwrap();
-        assert_eq!(4096, m.len());
+        assert_eq!(4096, m.mmap.len());
         m.grow(4096).unwrap();
-        assert_eq!(4096, m.len());
+        assert_eq!(4096, m.mmap.len());
 
         // Grow with double size
         m.grow(8192).unwrap();
-        assert_eq!(8192, m.len());
+        assert_eq!(8192, m.mmap.len());
 
         // Grow with less than the double size still creates the double size
         m.grow(9000).unwrap();
-        assert_eq!(16384, m.len());
+        assert_eq!(16384, m.mmap.len());
 
         std::fs::remove_file(&path).unwrap();
     }
