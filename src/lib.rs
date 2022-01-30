@@ -1,3 +1,9 @@
+mod btree;
+mod errors;
+
+pub use btree::SingleFileBtreeMap;
+pub use errors::Error;
+
 #[cfg(test)]
 mod tests {
     #[test]
