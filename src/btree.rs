@@ -3,19 +3,19 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, path::Path};
 
 /// Map backed by a single file on disk implemented using a B-tree.
-pub struct SingleFileBtreeMap<K, V> {
+pub struct BtreeIndex<K, V> {
     file: MemoryMappedFile,
     phantom: PhantomData<(K, V)>,
 }
 
-impl<K, V> SingleFileBtreeMap<K, V>
+impl<K, V> BtreeIndex<K, V>
 where
     K: Serialize + DeserializeOwned + PartialOrd,
     V: Serialize + DeserializeOwned + PartialOrd,
 {
-    pub fn create(path: &Path) -> Result<SingleFileBtreeMap<K, V>> {
-        let file = MemoryMappedFile::open(path)?;
-        Ok(SingleFileBtreeMap {
+    pub fn create(path: &Path) -> Result<BtreeIndex<K, V>> {
+        let file = MemoryMappedFile::with_capacity(0)?;
+        Ok(BtreeIndex {
             file,
             phantom: PhantomData,
         })

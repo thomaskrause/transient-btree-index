@@ -2,5 +2,5 @@ mod btree;
 mod error;
 mod file;
 
-pub use btree::SingleFileBtreeMap;
+pub use btree::BtreeIndex;
 pub use error::Error;

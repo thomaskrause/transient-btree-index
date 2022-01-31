@@ -1,64 +1,23 @@
 use crate::error::Result;
 use memmap2::MmapMut;
-use packed_struct::prelude::*;
-use std::{fs::OpenOptions, io::Write, path::PathBuf, mem::size_of};
-use tempfile::NamedTempFile;
-
-const METADATA_BLOCK_OFFSET : usize = 4096;
-
-#[derive(PackedStruct)]
-#[packed_struct(endian = "lsb")]
-pub struct Metadata {
-    free_space_offset: u64,
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Self {
-            free_space_offset: METADATA_BLOCK_OFFSET as u64,
-        }
-    }
-}
+use tempfile::tempfile;
 
 pub struct MemoryMappedFile {
     mmap: MmapMut,
-    path: PathBuf,
 }
 
 impl MemoryMappedFile {
-    pub fn open<P: Into<PathBuf>>(path: P) -> Result<MemoryMappedFile> {
-        let path = path.into();
-        let file_exists = path.is_file();
-
-        if !file_exists {
-            // Create the file and write the default metadata header at the first position
-            let mut f = OpenOptions::new().write(true).create(true).open(&path)?;
-            let md = Metadata::default().pack()?;
-            let written = f.write(&md)?;
-            // Fill remaining metadata block with ones
-            let one : [u8; 1] = [1];
-            for _ in written..METADATA_BLOCK_OFFSET {
-                // TODO: use less calls to write an larger arrays
-                f.write(&one)?;
-            }
+    pub fn with_capacity(capacity: usize) -> Result<MemoryMappedFile> {
+        // Create a temporary file with the capacity as size
+        let file = tempfile::tempfile()?;
+        if capacity > 0 {
+            file.set_len(capacity.try_into()?)?;
         }
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)?;
-
-        // TOOD: lock this file, eg. using the fd-lock crate to avoid two processes accessing it
+        // Load this file as memory mapped file
         let mmap = unsafe { MmapMut::map_mut(&file)? };
 
-        Ok(MemoryMappedFile { mmap, path })
-    }
-
-
-    fn metadata(&self) -> Result<Metadata> {
-        let md = Metadata::unpack(&self.mmap[0..size_of::<Metadata>()].try_into()?)?;
-        Ok(md)
+        Ok(MemoryMappedFile { mmap })
     }
 
     /// Grows the file to contain at least the requested number of bytes.
@@ -70,31 +29,20 @@ impl MemoryMappedFile {
             return Ok(());
         }
 
-        // Create a temporary file on the same file system as the target path
-        let mut new_file = self
-            .path
-            .parent()
-            .map_or_else(|| NamedTempFile::new(), |dir| NamedTempFile::new_in(dir))?;
+        // Create a new temporary file to which the content is copied to
+        let mut new_file = tempfile()?;
 
         // Set the file size so it can hold all requested content.
         // Allocate at least twice the old file size so we don't need to grow too often
         let new_size = requested_size.max(self.mmap.len() * 2);
-        new_file.as_file_mut().set_len(new_size.try_into()?)?;
+        new_file.set_len(new_size.try_into()?)?;
 
         // Copy all content from the old file into the new file
         let mut reader = &self.mmap[..];
-        std::io::copy(&mut reader, &mut new_file.as_file())?;
+        std::io::copy(&mut reader, &mut new_file)?;
 
-        // Overwrite the file and re-open mmap
-        new_file.persist(&self.path)?;
-
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(false)
-            .open(&self.path)?;
-        // TOOD: lock this file, eg. using the fd-lock crate to avoid two processes accessing it
-        self.mmap = unsafe { MmapMut::map_mut(&file)? };
+        // Re-open mmap
+        self.mmap = unsafe { MmapMut::map_mut(&new_file)? };
         Ok(())
     }
 }
@@ -106,13 +54,33 @@ mod tests {
     use super::MemoryMappedFile;
 
     #[test]
-    fn grow_mmap() {
-        let path: PathBuf = "testfile.mmap".into();
-        if path.is_file() {
-            std::fs::remove_file(&path).unwrap();
-        }
+    fn grow_mmap_from_zero_capacity() {
+        // Create file with empty capacity
+        let mut m = MemoryMappedFile::with_capacity(0).unwrap();
+        assert_eq!(0, m.mmap.len());
 
-        let mut m = MemoryMappedFile::open(&path).unwrap();
+        // Needs to grow
+        m.grow(128).unwrap();
+        assert_eq!(128, m.mmap.len());
+        m.grow(4096).unwrap();
+        assert_eq!(4096, m.mmap.len());
+
+        // No growing necessar
+        m.grow(1024).unwrap();
+        assert_eq!(4096, m.mmap.len());
+
+        // Grow with double size
+        m.grow(8192).unwrap();
+        assert_eq!(8192, m.mmap.len());
+
+        // Grow with less than the double size still creates the double size
+        m.grow(9000).unwrap();
+        assert_eq!(16384, m.mmap.len());
+    }
+
+    #[test]
+    fn grow_mmap_with_capacity() {
+        let mut m = MemoryMappedFile::with_capacity(4096).unwrap();
         assert_eq!(4096, m.mmap.len());
 
         // Don't grow if not necessary
@@ -128,7 +96,5 @@ mod tests {
         // Grow with less than the double size still creates the double size
         m.grow(9000).unwrap();
         assert_eq!(16384, m.mmap.len());
-
-        std::fs::remove_file(&path).unwrap();
     }
 }

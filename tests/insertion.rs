@@ -1,8 +1,8 @@
-use single_file_btree::SingleFileBtreeMap;
+use transient_btree_index::BtreeIndex;
 use tempfile::NamedTempFile;
 
 #[test]
 fn create_map() {
     let tmp_file = NamedTempFile::new().unwrap();
-    let m: SingleFileBtreeMap<u64, String> = SingleFileBtreeMap::create(tmp_file.path()).unwrap();
+    let m: BtreeIndex<u64, String> = BtreeIndex::create(tmp_file.path()).unwrap();
 }
