@@ -5,6 +5,47 @@ use bincode::Options;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
 
+/// Representation of a header at the start of each block.
+///
+/// When allocating new blocks, the size of this header is not included.
+pub struct BlockHeader {
+    capacity: u64,
+    used: u64,
+}
+
+impl BlockHeader {
+    /// Create a new block header by reading it from an array.
+    fn read(buffer: &[u8; 16]) -> Result<BlockHeader> {
+        let block_size = u64::from_le_bytes(buffer[0..8].try_into()?);
+        let used_size = u64::from_le_bytes(buffer[8..16].try_into()?);
+        Ok(BlockHeader {
+            capacity: block_size,
+            used: used_size,
+        })
+    }
+
+    /// Write the block header to a buffer.
+    fn write<W>(&self, mut buffer: W) -> Result<()>
+    where
+        W: Write,
+    {
+        buffer.write(&self.capacity.to_le_bytes())?;
+        buffer.write(&self.used.to_le_bytes())?;
+        Ok(())
+    }
+
+    /// The number of bytes needed to serialize the block header.
+    ///
+    /// Should be used as an offset. Also, when you want to allocate
+    /// blocks aligned to the page size, you should subtract the size.
+    pub fn size() -> usize {
+        2 * size_of::<u64>()
+    }
+}
+
+/// Represents a temporary memory mapped file that can store and retrieve blocks of type `B`.
+/// 
+/// Blocks will be (de-) serializable with the Serde crate.
 pub struct TemporaryBlockFile<B> {
     free_space_offset: usize,
     mmap: MmapMut,
@@ -12,39 +53,15 @@ pub struct TemporaryBlockFile<B> {
     phantom: PhantomData<B>,
 }
 
-struct BlockHeader {
-    block_size: u64,
-    used_size: u64,
-}
-
-impl BlockHeader {
-    fn read(buffer: &[u8; 16]) -> Result<BlockHeader> {
-        let block_size = u64::from_le_bytes(buffer[0..8].try_into()?);
-        let used_size = u64::from_le_bytes(buffer[8..16].try_into()?);
-        Ok(BlockHeader {
-            block_size,
-            used_size,
-        })
-    }
-
-    fn write<W>(&self, mut buffer: W) -> Result<()>
-    where
-        W: Write,
-    {
-        buffer.write(&self.block_size.to_le_bytes())?;
-        buffer.write(&self.used_size.to_le_bytes())?;
-        Ok(())
-    }
-
-    fn size() -> usize {
-        2 * size_of::<u64>()
-    }
-}
-
 impl<B> TemporaryBlockFile<B>
 where
     B: Serialize + DeserializeOwned,
 {
+    /// Create a new file with the given capacity.
+    ///
+    /// New blocks can be allocated with [`Self::allocate_block()`].
+    /// While the file will automatically grow when block are allocated and the capacity is reached,
+    /// you cannot change the capacity of a single block after allocating it.
     pub fn with_capacity(capacity: usize) -> Result<TemporaryBlockFile<B>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
@@ -58,42 +75,54 @@ where
         })
     }
 
-    pub fn get(&self, block_index: usize) -> Result<B> {
+    /// Get a block with the given id.
+    pub fn get(&self, block_id: usize) -> Result<B> {
         // Read the size of the stored block
-        let header = self.block_header(block_index)?;
-        let used_size: usize = header.used_size.try_into()?;
+        let header = self.block_header(block_id)?;
+        let used_size: usize = header.used.try_into()?;
         // Deserialize and return
-        let block_start = block_index + BlockHeader::size();
+        let block_start = block_id + BlockHeader::size();
         let block_end = block_start + used_size;
-        let result: B = self.serializer.deserialize(&self.mmap[block_start..block_end])?;
+        let result: B = self
+            .serializer
+            .deserialize(&self.mmap[block_start..block_end])?;
         Ok(result)
     }
 
-    pub fn can_update(&self, block_index: usize, block: &B) -> Result<u64> {
+    /// Determines wether a given block would still fit in the originally allocated space.
+    pub fn can_update(&self, block_id: usize, block: &B) -> Result<u64> {
         // Get the allocated size of this block
-        let header = self.block_header(block_index)?;
+        let header = self.block_header(block_id)?;
 
         // Get its new size and check it still fits
         let new_size = self.serializer.serialized_size(&block)?;
-        if new_size <= header.block_size {
+        if new_size <= header.capacity {
             Ok(new_size)
         } else {
-            Err(Error::ExistingBlockTooSmall { block_index })
+            Err(Error::ExistingBlockTooSmall {
+                block_index: block_id,
+            })
         }
     }
 
-    pub fn update(&mut self, block_index: usize, block: &B) -> Result<()> {
+    /// Set the content of a block with the given id.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error, if the capacity of the block is not large
+    /// enough to hold the new block.
+    pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         // Check there is still enough space in the block
-        let new_used_size = self.can_update(block_index, &block)?;
+        let new_used_size = self.can_update(block_id, &block)?;
 
         // Update the header with the new size
-        let mut header = self.block_header(block_index)?;
-        header.used_size = new_used_size;
-        header.write(&mut self.mmap[block_index..(block_index + BlockHeader::size())])?;
+        let mut header = self.block_header(block_id)?;
+        header.used = new_used_size;
+        header.write(&mut self.mmap[block_id..(block_id + BlockHeader::size())])?;
 
         // Serialize the block and write it at the proper location in the file
-        let block_size: usize = header.block_size.try_into()?;
-        let block_start = block_index + BlockHeader::size();
+        let block_size: usize = header.capacity.try_into()?;
+        let block_start = block_id + BlockHeader::size();
         let block_end = block_start + block_size;
         self.serializer
             .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
@@ -101,9 +130,12 @@ where
         Ok(())
     }
 
-    pub fn allocate_block(&mut self, block_size: usize) -> Result<usize> {
+    /// Allocate a new block with the given capacity.
+    ///
+    /// Returns the ID of the new block.
+    pub fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
         // Make sure we still have enough space left
-        let new_offset = self.free_space_offset + BlockHeader::size() + block_size;
+        let new_offset = self.free_space_offset + BlockHeader::size() + capacity;
         self.grow(new_offset)?;
 
         // Return the old start of free space as block index
@@ -111,8 +143,8 @@ where
 
         // Write the block header to the file
         let header = BlockHeader {
-            block_size: block_size.try_into()?,
-            used_size: 0,
+            capacity: capacity.try_into()?,
+            used: 0,
         };
         header.write(&mut self.mmap[result..(result + BlockHeader::size())])?;
 
@@ -121,9 +153,10 @@ where
         Ok(result)
     }
 
-    fn block_header(&self, block_index: usize) -> Result<BlockHeader> {
+    /// Parses the header of the block.
+    fn block_header(&self, block_id: usize) -> Result<BlockHeader> {
         let header = BlockHeader::read(
-            self.mmap[block_index..(block_index + BlockHeader::size())].try_into()?,
+            self.mmap[block_id..(block_id + BlockHeader::size())].try_into()?,
         )?;
         Ok(header)
     }
@@ -137,7 +170,7 @@ where
             return Ok(());
         }
 
-        // Create a new anonymous memory mapped the content is copied to
+        // Create a new anonymous memory mapped the content is copied to.
         // Allocate at least twice the old file size so we don't need to grow too often
         let new_size = requested_size.max(self.mmap.len() * 2);
         let mut new_mmap = MmapMut::map_anon(new_size)?;
@@ -214,7 +247,7 @@ mod tests {
 
         // Insert the block as it is
         assert_eq!(true, m.can_update(idx, &b).is_ok());
-        m.update(idx, &b).unwrap();
+        m.put(idx, &b).unwrap();
 
         // Get and check it is still equal
         let retrieved_block = m.get(idx).unwrap();
@@ -225,7 +258,7 @@ mod tests {
             b.push(i);
         }
         assert_eq!(true, m.can_update(idx, &b).is_ok());
-        m.update(idx, &b).unwrap();
+        m.put(idx, &b).unwrap();
         let retrieved_block = m.get(idx).unwrap();
         assert_eq!(b, retrieved_block);
 
@@ -235,11 +268,11 @@ mod tests {
             large_block.push(i);
         }
         assert_eq!(false, m.can_update(idx, &large_block).is_ok());
-        assert_eq!(false, m.update(idx, &large_block).is_ok());
+        assert_eq!(false, m.put(idx, &large_block).is_ok());
 
         // Allocate and put the new large block, but check the old block was not changed
         let large_block_idx = m.allocate_block(1024).unwrap();
-        m.update(large_block_idx, &large_block).unwrap();
+        m.put(large_block_idx, &large_block).unwrap();
         let retrieved_block = m.get(idx).unwrap();
         assert_eq!(b, retrieved_block);
     }
