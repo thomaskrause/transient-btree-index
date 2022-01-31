@@ -17,6 +17,7 @@ where
     K: Serialize + DeserializeOwned + PartialOrd,
     V: Serialize + DeserializeOwned + PartialOrd,
 {
+    /// Create a new instance with the given capacity in bytes.
     pub fn with_capacity(capacity: usize) -> Result<BtreeIndex<K, V>> {
         let file = TemporaryBlockFile::with_capacity(capacity)?;
         Ok(BtreeIndex {
