@@ -7,14 +7,18 @@ use serde_derive::{Deserialize, Serialize};
 
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
-const BLOCK_SIZE: usize = PAGE_SIZE - BlockHeader::size();
+const MIN_BLOCK_SIZE: usize = PAGE_SIZE - BlockHeader::size();
+
+#[derive(Serialize, Deserialize)]
+struct Key<K, V> {
+    key: K,
+    payload: V,
+}
 
 #[derive(Serialize, Deserialize)]
 struct NodeBlock<K, V> {
-    number_of_keys: usize,
+    keys: Vec<Key<K, V>>,
     child_nodes: Vec<usize>,
-    keys: Vec<K>,
-    payload: Vec<V>,
 }
 
 /// Map backed by a single file on disk implemented using a B-tree.
@@ -29,14 +33,21 @@ where
 }
 
 fn find_key_in_node<K: PartialOrd, V>(key: &K, node: &NodeBlock<K, V>) -> usize {
-    for i in 0..node.number_of_keys {
-        if &node.keys[i] == key {
+    for i in 1..node.keys.len() {
+        if &node.keys[i].key == key {
             return i;
-        } else if &node.keys[i] >= key {
+        } else if &node.keys[i].key >= key {
             return i - 1;
         }
     }
-    node.number_of_keys + 1
+    node.keys.len() + 1
+}
+
+/// Return a value that is at least the given capacity, but ensures the block ends at a memory page
+fn page_aligned_capacity(capacity: usize) -> usize {
+    let residual = capacity % PAGE_SIZE;
+    // Make sure there is enough space for the block header
+    (capacity + residual) - BlockHeader::size()
 }
 
 impl<K, V> BtreeIndex<K, V>
@@ -50,12 +61,10 @@ where
 
         // Always add an empty root node
         let root_node = NodeBlock {
-            number_of_keys: 0,
             child_nodes: Vec::default(),
             keys: Vec::default(),
-            payload: Vec::default(),
         };
-        let root_id = file.allocate_block(BLOCK_SIZE)?;
+        let root_id = file.allocate_block(MIN_BLOCK_SIZE)?;
         file.put(root_id, &root_node)?;
 
         Ok(BtreeIndex {
@@ -66,44 +75,80 @@ where
     }
 
     pub fn get(&self, key: &K) -> Result<Option<V>> {
-        let (node, _, i) = self.lookup_block(key)?;
-        if i < node.number_of_keys && &node.keys[i] == key {
-            Ok(Some(node.payload[i].clone()))
+        let (node, _, i) = self.lookup_block(key, false)?;
+        if i < node.keys.len() && &node.keys[i].key == key {
+            Ok(Some(node.keys[i].payload.clone()))
         } else {
             Ok(None)
         }
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
-        // Get the node block this key should be inserted into
-        let (mut node, node_id, i) = self.lookup_block(&key)?;
-        if i < node.number_of_keys && node.keys[i] == key {
+        // Get the leaf node block this key should be inserted into
+        let (mut node, node_id, i) = self.lookup_block(&key, true)?;
+        if i < node.keys.len() && node.keys[i].key == key {
             // Key already exists, replace the value and return the previous one
-            let old_value = std::mem::replace(&mut node.payload[i], value);
+            let old_value = std::mem::replace(&mut node.keys[i].payload, value);
             self.save_node(node_id, node)?;
             Ok(Some(old_value))
         } else {
             // Insert key into this node and attempt to save or split it
-            node.keys.insert(i, key);
-            node.payload.insert(i, value);
-            node.number_of_keys += 1;
+            node.keys.insert(
+                i,
+                Key {
+                    key,
+                    payload: value,
+                },
+            );
             self.save_node(node_id, node)?;
             Ok(None)
         }
     }
 
-    fn save_node(&mut self, node_id: usize, node: NodeBlock<K, V>) -> Result<()> {
-        // Do not split if this node can handle both the number of keys and would not overflow
+    fn save_node(&mut self, node_id: usize, mut node: NodeBlock<K, V>) -> Result<()> {
         let (update_fits, _needed_size) = self.file.can_update(node_id, &node)?;
-        if node.number_of_keys < 2 * self.order && update_fits {
+        if node.keys.len() < 2 * self.order && update_fits {
+            // Do not split if this node can handle both the number of keys and would not overflow
             self.file.put(node_id, &node)?;
             Ok(())
         } else {
-            todo!()
+            // Split into two nodes and attempt to save these
+            let split_position = if node.keys.len() < 2 * self.order {
+                self.order
+            } else {
+                node.keys.len() / 2
+            };
+
+            // Split all elements belonging to the new right node
+            let right_entries = node.keys.split_off(split_position);
+            let right_child_nodes = if node.child_nodes.is_empty() {
+                Vec::new()
+            } else {
+                node.child_nodes.split_off(split_position)
+            };
+
+            let right_node = NodeBlock {
+                child_nodes: right_child_nodes,
+                keys: right_entries,
+            };
+
+            // Allocate a block for the new right node
+            let right_block_size = self.file.serialized_size(&right_node)?;
+            let right_aligned_block_size = page_aligned_capacity(right_block_size.try_into()?);
+            let right_node_id = self.file.allocate_block(right_aligned_block_size)?;
+
+            // Recursivly save both the left and right node, splitting again if necessars
+            self.save_node(node_id, node)?;
+            self.save_node(right_node_id, right_node)?;
+            Ok(())
         }
     }
 
-    fn lookup_block(&self, key: &K) -> Result<(NodeBlock<K, V>, usize, usize)> {
+    fn lookup_block(
+        &self,
+        key: &K,
+        leaf_required: bool,
+    ) -> Result<(NodeBlock<K, V>, usize, usize)> {
         let mut finished = false;
         let mut node = self.file.get(self.root_id)?;
         let mut node_id = self.root_id;
@@ -111,14 +156,17 @@ where
         while !finished {
             // Search for the key in the current node
             let i = find_key_in_node(key, &node);
-            if i < node.number_of_keys {
-                if &node.keys[i] == key {
+            if i < node.keys.len() {
+                if &node.keys[i].key == key && (!leaf_required || node.child_nodes.is_empty()) {
                     // Key found, return the node block and its index in the block
                     return Ok((node, node_id, i));
-                } else {
+                } else if i < node.child_nodes.len() {
                     // Follow reference to the next child node
                     node_id = node.child_nodes[i];
                     node = self.file.get(node_id)?;
+                } else {
+                    // reached a leaf node
+                    finished = true;
                 }
             } else {
                 finished = true;
@@ -128,7 +176,7 @@ where
         // Key not found, return the last searched node (which is deepest in the tree)
         // i indicates where the key would have been inserted, in this case it should be the end
         // of the sorted list
-        let i = node.number_of_keys;
+        let i = node.keys.len();
         Ok((node, node_id, i))
     }
 }
@@ -137,14 +185,13 @@ where
 mod tests {
     use crate::BtreeIndex;
 
-    use super::BLOCK_SIZE;
+    use super::MIN_BLOCK_SIZE;
 
     #[test]
     fn insert_get_static_size() {
-        // TODO: use more entries so more than one node is needed
-        let nr_entries = 10;
+        let nr_entries = 100;
 
-        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(BLOCK_SIZE).unwrap();
+        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(MIN_BLOCK_SIZE).unwrap();
 
         t.insert(0, 42).unwrap();
 

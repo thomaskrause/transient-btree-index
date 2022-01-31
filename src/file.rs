@@ -98,13 +98,20 @@ where
         let header = self.block_header(block_id)?;
 
         // Get its new size and check it still fits
-        let new_size = self.serializer.serialized_size(&block)?;
+        let new_size = self.serialized_size(block)?;
         let result = if new_size <= header.capacity {
             (true, new_size)
         } else {
             (false, new_size)
         };
         Ok(result)
+    }
+
+    /// Get the number of bytes necessary to store the given block.
+    ///
+    pub fn serialized_size(&self, block: &B) -> Result<u64> {
+        let new_size = self.serializer.serialized_size(&block)?;
+        Ok(new_size)
     }
 
     /// Set the content of a block with the given id.
