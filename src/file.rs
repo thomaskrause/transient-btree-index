@@ -4,7 +4,6 @@ use crate::error::Result;
 use bincode::Options;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
-use tempfile::tempfile;
 
 pub struct TemporaryBlockFile<B> {
     free_space_offset: usize,
@@ -18,14 +17,9 @@ where
     B: Serialize + DeserializeOwned,
 {
     pub fn with_capacity(capacity: usize) -> Result<TemporaryBlockFile<B>> {
-        // Create a temporary file with the capacity as size
-        let file = tempfile::tempfile()?;
-        if capacity > 0 {
-            file.set_len(capacity.try_into()?)?;
-        }
-
-        // Load this file as memory mapped file
-        let mmap = unsafe { MmapMut::map_mut(&file)? };
+        // Create an anonymous memory mapped file with the capacity as size
+        let capacity = capacity.max(1);
+        let mmap = MmapMut::map_anon(capacity)?;
 
         Ok(TemporaryBlockFile {
             mmap,
@@ -84,20 +78,15 @@ where
             return Ok(());
         }
 
-        // Create a new temporary file to which the content is copied to
-        let mut new_file = tempfile()?;
-
-        // Set the file size so it can hold all requested content.
+        // Create a new anonymous memory mapped the content is copied to
         // Allocate at least twice the old file size so we don't need to grow too often
         let new_size = requested_size.max(self.mmap.len() * 2);
-        new_file.set_len(new_size.try_into()?)?;
-
+        let mut new_mmap = MmapMut::map_anon(new_size)?;
+        
         // Copy all content from the old file into the new file
-        let mut reader = &self.mmap[..];
-        std::io::copy(&mut reader, &mut new_file)?;
-
-        // Re-open mmap
-        self.mmap = unsafe { MmapMut::map_mut(&new_file)? };
+        new_mmap[0..self.mmap.len()].copy_from_slice(&self.mmap);
+     
+        self.mmap = new_mmap;
         Ok(())
     }
 }
@@ -110,7 +99,8 @@ mod tests {
     fn grow_mmap_from_zero_capacity() {
         // Create file with empty capacity
         let mut m = TemporaryBlockFile::<u64>::with_capacity(0).unwrap();
-        assert_eq!(0, m.mmap.len());
+        // The capacity must be at least one
+        assert_eq!(1, m.mmap.len());
 
         // Needs to grow
         m.grow(128).unwrap();
