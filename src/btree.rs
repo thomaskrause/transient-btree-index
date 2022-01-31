@@ -4,7 +4,6 @@ use crate::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
-use std::marker::PhantomData;
 
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
@@ -26,18 +25,18 @@ where
 {
     file: TemporaryBlockFile<NodeBlock<K, V>>,
     root_id: usize,
-    phantom: PhantomData<(K, V)>,
+    order: usize,
 }
 
-fn find_key_in_node<K: PartialOrd, V>(key: &K, node: &NodeBlock<K, V>) -> Option<usize> {
+fn find_key_in_node<K: PartialOrd, V>(key: &K, node: &NodeBlock<K, V>) -> usize {
     for i in 0..node.number_of_keys {
         if &node.keys[i] == key {
-            return Some(i);
+            return i;
         } else if &node.keys[i] >= key {
-            return Some(i - 1);
+            return i - 1;
         }
     }
-    None
+    node.number_of_keys + 1
 }
 
 impl<K, V> BtreeIndex<K, V>
@@ -62,34 +61,98 @@ where
         Ok(BtreeIndex {
             root_id,
             file,
-            phantom: PhantomData,
+            order: 128,
         })
     }
 
     pub fn get(&self, key: &K) -> Result<Option<V>> {
+        let (node, _, i) = self.lookup_block(key)?;
+        if i < node.number_of_keys && &node.keys[i] == key {
+            Ok(Some(node.payload[i].clone()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
+        // Get the node block this key should be inserted into
+        let (mut node, node_id, i) = self.lookup_block(&key)?;
+        if i < node.number_of_keys && node.keys[i] == key {
+            // Key already exists, replace the value and return the previous one
+            let old_value = std::mem::replace(&mut node.payload[i], value);
+            // Save the block
+            // TODO: handle overflow
+            self.file.put(node_id, &node)?;
+            Ok(Some(old_value))
+        } else {
+            // Determine if there is still room  in the node for this key
+            if node.number_of_keys < 2 * self.order {
+                // Insert key into this node and save it
+                node.keys.insert(i, key);
+                node.payload.insert(i, value);
+                node.number_of_keys += 1;
+                // TODO: handle overflow
+                self.file.put(node_id, &node)?;
+                Ok(None)
+            } else {
+                todo!()
+            }
+        }
+    }
+
+    fn lookup_block(&self, key: &K) -> Result<(NodeBlock<K, V>, usize, usize)> {
         let mut finished = false;
-        let mut result = None;
         let mut node = self.file.get(self.root_id)?;
+        let mut node_id = self.root_id;
 
         while !finished {
             // Search for the key in the current node
-            if let Some(i) = find_key_in_node(key, &node) {
+            let i = find_key_in_node(key, &node);
+            if i < node.number_of_keys {
                 if &node.keys[i] == key {
-                    // Key found
-                    result = Some(node.payload[i].clone());
-                    finished = true;
+                    // Key found, return the node block and its index in the block
+                    return Ok((node, node_id, i));
                 } else {
                     // Follow reference to the next child node
-                    node = self.file.get(node.child_nodes[i])?;
+                    node_id = node.child_nodes[i];
+                    node = self.file.get(node_id)?;
                 }
             } else {
                 finished = true;
             }
         }
 
-        Ok(result)
+        // Key not found, return the last searched node (which is deepest in the tree)
+        // i indicates where the key would have been inserted, in this case it should be the end
+        // of the sorted list
+        let i = node.number_of_keys;
+        Ok((node, node_id, i))
     }
-    pub fn insert(&mut self, _key: K, _value: V) -> Result<()> {
-        todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::BtreeIndex;
+
+    use super::BLOCK_SIZE;
+
+    #[test]
+    fn insert_get_static_size() {
+        // TODO: use more entries so more than one node is needed
+        let nr_entries = 10;
+
+        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(BLOCK_SIZE).unwrap();
+
+        t.insert(0, 42).unwrap();
+
+        for i in 1..nr_entries {
+            t.insert(i, i).unwrap();
+        }
+
+        assert_eq!(Some(42), t.get(&0).unwrap());
+        for i in 1..nr_entries {
+            let v = t.get(&i).unwrap();
+            assert_eq!(Some(i), v);
+        }
     }
 }
