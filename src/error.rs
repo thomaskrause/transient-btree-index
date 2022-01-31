@@ -8,9 +8,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[non_exhaustive]
 pub enum Error {
     #[error("Size of existing block (index {block_index}) is too small to write new block.")]
-    ExistingBlockTooSmall {
-        block_index: usize,
-    },
+    ExistingBlockTooSmall { block_index: usize },
     #[error(transparent)]
     IO(#[from] std::io::Error),
     #[error(transparent)]

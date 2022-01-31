@@ -38,13 +38,13 @@ impl BlockHeader {
     ///
     /// Should be used as an offset. Also, when you want to allocate
     /// blocks aligned to the page size, you should subtract the size.
-    pub fn size() -> usize {
+    pub const fn size() -> usize {
         2 * size_of::<u64>()
     }
 }
 
 /// Represents a temporary memory mapped file that can store and retrieve blocks of type `B`.
-/// 
+///
 /// Blocks will be (de-) serializable with the Serde crate.
 pub struct TemporaryBlockFile<B> {
     free_space_offset: usize,
@@ -155,9 +155,8 @@ where
 
     /// Parses the header of the block.
     fn block_header(&self, block_id: usize) -> Result<BlockHeader> {
-        let header = BlockHeader::read(
-            self.mmap[block_id..(block_id + BlockHeader::size())].try_into()?,
-        )?;
+        let header =
+            BlockHeader::read(self.mmap[block_id..(block_id + BlockHeader::size())].try_into()?)?;
         Ok(header)
     }
 
