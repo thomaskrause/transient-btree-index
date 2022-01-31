@@ -1,10 +1,14 @@
-use crate::{error::Result, file::MemoryMappedFile};
+use crate::{error::Result, file::TemporaryBlockStorage};
 use serde::{de::DeserializeOwned, Serialize};
-use std::{marker::PhantomData, path::Path};
+use serde_derive::{Deserialize, Serialize};
+use std::marker::PhantomData;
+
+#[derive(Serialize, Deserialize)]
+struct Block {}
 
 /// Map backed by a single file on disk implemented using a B-tree.
 pub struct BtreeIndex<K, V> {
-    file: MemoryMappedFile,
+    file: TemporaryBlockStorage<Block>,
     phantom: PhantomData<(K, V)>,
 }
 
@@ -13,8 +17,8 @@ where
     K: Serialize + DeserializeOwned + PartialOrd,
     V: Serialize + DeserializeOwned + PartialOrd,
 {
-    pub fn create(path: &Path) -> Result<BtreeIndex<K, V>> {
-        let file = MemoryMappedFile::with_capacity(0)?;
+    pub fn with_capacity(capacity: usize) -> Result<BtreeIndex<K, V>> {
+        let file = TemporaryBlockStorage::with_capacity(capacity)?;
         Ok(BtreeIndex {
             file,
             phantom: PhantomData,

@@ -1,13 +1,21 @@
+use std::marker::PhantomData;
+
 use crate::error::Result;
 use memmap2::MmapMut;
+use serde::{de::DeserializeOwned, Serialize};
 use tempfile::tempfile;
 
-pub struct MemoryMappedFile {
+pub struct TemporaryBlockStorage<B> {
+    free_space_offset: u64,
     mmap: MmapMut,
+    phantom: PhantomData<B>,
 }
 
-impl MemoryMappedFile {
-    pub fn with_capacity(capacity: usize) -> Result<MemoryMappedFile> {
+impl<B> TemporaryBlockStorage<B>
+where
+    B: Serialize + DeserializeOwned,
+{
+    pub fn with_capacity(capacity: usize) -> Result<TemporaryBlockStorage<B>> {
         // Create a temporary file with the capacity as size
         let file = tempfile::tempfile()?;
         if capacity > 0 {
@@ -17,7 +25,11 @@ impl MemoryMappedFile {
         // Load this file as memory mapped file
         let mmap = unsafe { MmapMut::map_mut(&file)? };
 
-        Ok(MemoryMappedFile { mmap })
+        Ok(TemporaryBlockStorage {
+            mmap,
+            free_space_offset: 0,
+            phantom: PhantomData,
+        })
     }
 
     /// Grows the file to contain at least the requested number of bytes.
@@ -49,14 +61,12 @@ impl MemoryMappedFile {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use super::MemoryMappedFile;
+    use super::TemporaryBlockStorage;
 
     #[test]
     fn grow_mmap_from_zero_capacity() {
         // Create file with empty capacity
-        let mut m = MemoryMappedFile::with_capacity(0).unwrap();
+        let mut m = TemporaryBlockStorage::<u64>::with_capacity(0).unwrap();
         assert_eq!(0, m.mmap.len());
 
         // Needs to grow
@@ -80,7 +90,7 @@ mod tests {
 
     #[test]
     fn grow_mmap_with_capacity() {
-        let mut m = MemoryMappedFile::with_capacity(4096).unwrap();
+        let mut m = TemporaryBlockStorage::<u64>::with_capacity(4096).unwrap();
         assert_eq!(4096, m.mmap.len());
 
         // Don't grow if not necessary
