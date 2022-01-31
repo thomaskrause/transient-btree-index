@@ -29,8 +29,8 @@ impl BlockHeader {
     where
         W: Write,
     {
-        buffer.write(&self.capacity.to_le_bytes())?;
-        buffer.write(&self.used.to_le_bytes())?;
+        buffer.write_all(&self.capacity.to_le_bytes())?;
+        buffer.write_all(&self.used.to_le_bytes())?;
         Ok(())
     }
 
@@ -113,7 +113,7 @@ where
     /// enough to hold the new block.
     pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         // Check there is still enough space in the block
-        let new_used_size = self.can_update(block_id, &block)?;
+        let new_used_size = self.can_update(block_id, block)?;
 
         // Update the header with the new size
         let mut header = self.block_header(block_id)?;
