@@ -90,19 +90,21 @@ where
     }
 
     /// Determines wether a given block would still fit in the originally allocated space.
-    pub fn can_update(&self, block_id: usize, block: &B) -> Result<u64> {
+    ///
+    /// Returns a tuple with the first value beeing true when the update fits.
+    /// The second value is the needed size for this block.
+    pub fn can_update(&self, block_id: usize, block: &B) -> Result<(bool, u64)> {
         // Get the allocated size of this block
         let header = self.block_header(block_id)?;
 
         // Get its new size and check it still fits
         let new_size = self.serializer.serialized_size(&block)?;
-        if new_size <= header.capacity {
-            Ok(new_size)
+        let result = if new_size <= header.capacity {
+            (true, new_size)
         } else {
-            Err(Error::ExistingBlockTooSmall {
-                block_index: block_id,
-            })
-        }
+            (false, new_size)
+        };
+        Ok(result)
     }
 
     /// Set the content of a block with the given id.
@@ -113,7 +115,13 @@ where
     /// enough to hold the new block.
     pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         // Check there is still enough space in the block
-        let new_used_size = self.can_update(block_id, block)?;
+        let (update_fits, new_used_size) = self.can_update(block_id, block)?;
+        if !update_fits {
+            return Err(Error::ExistingBlockTooSmall {
+                block_id,
+                needed: new_used_size,
+            });
+        }
 
         // Update the header with the new size
         let mut header = self.block_header(block_id)?;
@@ -266,7 +274,7 @@ mod tests {
         for i in 1..300 {
             large_block.push(i);
         }
-        assert_eq!(false, m.can_update(idx, &large_block).is_ok());
+        assert_eq!(false, m.can_update(idx, &large_block).unwrap().0);
         assert_eq!(false, m.put(idx, &large_block).is_ok());
 
         // Allocate and put the new large block, but check the old block was not changed

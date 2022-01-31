@@ -80,23 +80,26 @@ where
         if i < node.number_of_keys && node.keys[i] == key {
             // Key already exists, replace the value and return the previous one
             let old_value = std::mem::replace(&mut node.payload[i], value);
-            // Save the block
-            // TODO: handle overflow
-            self.file.put(node_id, &node)?;
+            self.save_node(node_id, node)?;
             Ok(Some(old_value))
         } else {
-            // Determine if there is still room  in the node for this key
-            if node.number_of_keys < 2 * self.order {
-                // Insert key into this node and save it
-                node.keys.insert(i, key);
-                node.payload.insert(i, value);
-                node.number_of_keys += 1;
-                // TODO: handle overflow
-                self.file.put(node_id, &node)?;
-                Ok(None)
-            } else {
-                todo!()
-            }
+            // Insert key into this node and attempt to save or split it
+            node.keys.insert(i, key);
+            node.payload.insert(i, value);
+            node.number_of_keys += 1;
+            self.save_node(node_id, node)?;
+            Ok(None)
+        }
+    }
+
+    fn save_node(&mut self, node_id: usize, node: NodeBlock<K, V>) -> Result<()> {
+        // Do not split if this node can handle both the number of keys and would not overflow
+        let (update_fits, _needed_size) = self.file.can_update(node_id, &node)?;
+        if node.number_of_keys < 2 * self.order && update_fits {
+            self.file.put(node_id, &node)?;
+            Ok(())
+        } else {
+            todo!()
         }
     }
 
