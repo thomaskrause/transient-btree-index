@@ -1,6 +1,5 @@
 use std::{array::TryFromSliceError, num::TryFromIntError};
 
-use tempfile::PersistError;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -15,5 +14,6 @@ pub enum Error {
     #[error(transparent)]
     SliceConversion(#[from] TryFromSliceError),
     #[error(transparent)]
-    PersistingTemporaryFile(#[from] PersistError),
+    Bincode(#[from] bincode::Error),
+    
 }

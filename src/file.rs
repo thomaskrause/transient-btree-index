@@ -1,21 +1,23 @@
 use std::marker::PhantomData;
 
 use crate::error::Result;
+use bincode::Options;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
 use tempfile::tempfile;
 
-pub struct TemporaryBlockStorage<B> {
-    free_space_offset: u64,
+pub struct TemporaryBlockFile<B> {
+    free_space_offset: usize,
     mmap: MmapMut,
+    serializer: bincode::DefaultOptions,
     phantom: PhantomData<B>,
 }
 
-impl<B> TemporaryBlockStorage<B>
+impl<B> TemporaryBlockFile<B>
 where
     B: Serialize + DeserializeOwned,
 {
-    pub fn with_capacity(capacity: usize) -> Result<TemporaryBlockStorage<B>> {
+    pub fn with_capacity(capacity: usize) -> Result<TemporaryBlockFile<B>> {
         // Create a temporary file with the capacity as size
         let file = tempfile::tempfile()?;
         if capacity > 0 {
@@ -25,11 +27,52 @@ where
         // Load this file as memory mapped file
         let mmap = unsafe { MmapMut::map_mut(&file)? };
 
-        Ok(TemporaryBlockStorage {
+        Ok(TemporaryBlockFile {
             mmap,
             free_space_offset: 0,
+            serializer: bincode::DefaultOptions::new(),
             phantom: PhantomData,
         })
+    }
+
+    pub fn get(&self, block_index: usize) -> Result<B> {
+        // Read the size of the stored block
+        let block_start = block_index + 8;
+        let block_size = u64::from_le_bytes(self.mmap[block_index..block_start].try_into()?);
+        let block_size: usize = block_size.try_into()?;
+        // Deserialize and return
+        let block_end = block_start + block_size;
+        let result: B = bincode::deserialize(&self.mmap[block_start..block_end])?;
+        Ok(result)
+    }
+
+    pub fn can_update(&self, block: B, block_index: usize) -> Result<bool> {
+        // TODO: Get the allocated size of this block
+
+        // Get its new size and check it still fits
+        let new_size = self.serializer.serialized_size(&block)?;
+        todo!()
+    }
+
+    pub fn update(&mut self, block: B, block_index: usize) -> Result<()> {
+        todo!()
+    }
+
+    pub fn allocate_block(&mut self, block_size: usize) -> Result<usize> {
+        // Make sure we still have enough space left
+        let new_offset = self.free_space_offset + block_size + 8;
+        self.grow(new_offset)?;
+
+        // Return the old start of free space as block index
+        let result = self.free_space_offset;
+
+        // Write the block size to the file
+        let block_size: u64 = block_size.try_into()?;
+        self.mmap[result..(result + 8)].copy_from_slice(&block_size.to_le_bytes());
+
+        // The next free block can be added after this block
+        self.free_space_offset = new_offset;
+        Ok(result)
     }
 
     /// Grows the file to contain at least the requested number of bytes.
@@ -61,12 +104,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::TemporaryBlockStorage;
+    use super::TemporaryBlockFile;
 
     #[test]
     fn grow_mmap_from_zero_capacity() {
         // Create file with empty capacity
-        let mut m = TemporaryBlockStorage::<u64>::with_capacity(0).unwrap();
+        let mut m = TemporaryBlockFile::<u64>::with_capacity(0).unwrap();
         assert_eq!(0, m.mmap.len());
 
         // Needs to grow
@@ -90,7 +133,7 @@ mod tests {
 
     #[test]
     fn grow_mmap_with_capacity() {
-        let mut m = TemporaryBlockStorage::<u64>::with_capacity(4096).unwrap();
+        let mut m = TemporaryBlockFile::<u64>::with_capacity(4096).unwrap();
         assert_eq!(4096, m.mmap.len());
 
         // Don't grow if not necessary
