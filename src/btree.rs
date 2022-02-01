@@ -41,6 +41,7 @@ where
     file: TemporaryBlockFile<NodeBlock<K, V>>,
     root_id: usize,
     order: usize,
+    empty: bool,
 }
 
 pub struct BtreeConfig {
@@ -104,6 +105,7 @@ where
             root_id,
             file,
             order: config.order,
+            empty: true,
         })
     }
 
@@ -117,6 +119,8 @@ where
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<()> {
+        self.empty = false;
+
         let mut root_node = self.file.get(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current one is full
@@ -137,6 +141,10 @@ where
             self.insert_nonfull(&mut root_node, &key, value)?;
         }
         Ok(())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.empty
     }
 
     fn search(&self, node: NodeBlock<K, V>, key: &K) -> Result<Option<(NodeBlock<K, V>, usize)>> {
@@ -244,8 +252,11 @@ mod tests {
 
         let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
 
+        assert_eq!(true, t.is_empty());
+
         t.insert(0, 42).unwrap();
 
+        assert_eq!(false, t.is_empty());
         for i in 1..nr_entries {
             t.insert(i, i).unwrap();
         }
