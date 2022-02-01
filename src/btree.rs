@@ -1,12 +1,10 @@
 use crate::{
     error::Result,
-    file::{BlockHeader, TemporaryBlockFile}, Error,
+    file::{BlockHeader, TemporaryBlockFile, page_aligned_capacity}, Error, PAGE_SIZE,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
-const KB: usize = 1 << 10;
-const PAGE_SIZE: usize = 4 * KB;
 const MIN_BLOCK_SIZE: usize = PAGE_SIZE - BlockHeader::size();
 
 #[derive(Serialize, Deserialize)]
@@ -43,12 +41,6 @@ fn find_key_in_node<K: PartialOrd, V>(key: &K, node: &NodeBlock<K, V>) -> usize 
     node.keys.len() + 1
 }
 
-/// Return a value that is at least the given capacity, but ensures the block ends at a memory page
-fn page_aligned_capacity(capacity: usize) -> usize {
-    let residual = capacity % PAGE_SIZE;
-    // Make sure there is enough space for the block header
-    (capacity + residual) - BlockHeader::size()
-}
 
 impl<K, V> BtreeIndex<K, V>
 where

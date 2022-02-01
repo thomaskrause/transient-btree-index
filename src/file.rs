@@ -1,9 +1,16 @@
-use std::{io::Write, marker::PhantomData, mem::size_of};
+use std::{collections::HashMap, io::Write, marker::PhantomData, mem::size_of};
 
-use crate::{error::Result, Error};
+use crate::{error::Result, PAGE_SIZE};
 use bincode::Options;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
+
+/// Return a value that is at least the given capacity, but ensures the block ends at a memory page
+pub fn page_aligned_capacity(capacity: usize) -> usize {
+    let residual = capacity % PAGE_SIZE;
+    // Make sure there is enough space for the block header
+    (capacity + residual) - BlockHeader::size()
+}
 
 /// Representation of a header at the start of each block.
 ///
@@ -49,6 +56,7 @@ impl BlockHeader {
 pub struct TemporaryBlockFile<B> {
     free_space_offset: usize,
     mmap: MmapMut,
+    relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
     phantom: PhantomData<B>,
 }
@@ -70,6 +78,7 @@ where
         Ok(TemporaryBlockFile {
             mmap,
             free_space_offset: 0,
+            relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
             phantom: PhantomData,
         })
@@ -77,6 +86,8 @@ where
 
     /// Get a block with the given id.
     pub fn get(&self, block_id: usize) -> Result<B> {
+        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
         // Read the size of the stored block
         let header = self.block_header(block_id)?;
         let used_size: usize = header.used.try_into()?;
@@ -94,6 +105,7 @@ where
     /// Returns a tuple with the first value beeing true when the update fits.
     /// The second value is the needed size for this block.
     pub fn can_update(&self, block_id: usize, block: &B) -> Result<(bool, u64)> {
+        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
         // Get the allocated size of this block
         let header = self.block_header(block_id)?;
 
@@ -116,19 +128,21 @@ where
 
     /// Set the content of a block with the given id.
     ///
-    /// # Errors
-    ///
-    /// This will return an error, if the capacity of the block is not large
-    /// enough to hold the new block.
+    /// If the block needs more space than was originally allocated, a new block is allocated
+    /// and the redirection is saved in an in-memory hash map.
+    /// The old block will remain empty. So try to avoid writing any
+    /// blocks with a larger size than originally allocated.
     pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         // Check there is still enough space in the block
         let (update_fits, new_used_size) = self.can_update(block_id, block)?;
-        if !update_fits {
-            return Err(Error::ExistingBlockTooSmall {
-                block_id,
-                needed: new_used_size,
-            });
-        }
+        let block_id = if !update_fits {
+            let new_used_size: usize = new_used_size.try_into()?;
+            let new_block_id = self.allocate_block(page_aligned_capacity(new_used_size * 2))?;
+            self.relocated_blocks.insert(block_id, new_block_id);
+            new_block_id
+        } else {
+            block_id
+        };
 
         // Update the header with the new size
         let mut header = self.block_header(block_id)?;
@@ -282,12 +296,11 @@ mod tests {
             large_block.push(i);
         }
         assert_eq!(false, m.can_update(idx, &large_block).unwrap().0);
-        assert_eq!(false, m.put(idx, &large_block).is_ok());
-
-        // Allocate and put the new large block, but check the old block was not changed
-        let large_block_idx = m.allocate_block(1024).unwrap();
-        m.put(large_block_idx, &large_block).unwrap();
-        let retrieved_block = m.get(idx).unwrap();
-        assert_eq!(b, retrieved_block);
+        // Check that we can still insert the block, but that the relocation table is updated
+        m.put(idx, &large_block).unwrap();
+        assert_eq!(1, m.relocated_blocks.len());
+        assert_eq!(true, m.relocated_blocks.contains_key(&idx));
+        // Get the block and check the new value is returned
+        assert_eq!(large_block, m.get(idx).unwrap());
     }
 }
