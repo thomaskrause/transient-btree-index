@@ -17,12 +17,8 @@ mod btree;
 mod error;
 mod file;
 
-pub use btree::BtreeIndex;
+pub use btree::{BtreeIndex, BtreeConfig};
 pub use error::Error;
-
 
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
-
-
-

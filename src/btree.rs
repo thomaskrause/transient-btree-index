@@ -1,12 +1,10 @@
 use crate::{
     error::Result,
     file::{page_aligned_capacity, BlockHeader, TemporaryBlockFile},
-    Error, PAGE_SIZE,
+    Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
-
-const MIN_BLOCK_SIZE: usize = PAGE_SIZE - BlockHeader::size();
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Key<K, V> {
@@ -46,17 +44,56 @@ where
     order: usize,
 }
 
+pub struct BtreeConfig {
+    order: usize,
+    est_max_elem_size: usize,
+}
+
+impl Default for BtreeConfig {
+    fn default() -> Self {
+        Self {
+            order: 128,
+            est_max_elem_size: 32,
+        }
+    }
+}
+
+impl BtreeConfig {
+    /// Set the estimated maximum size in bytes for each element (key + value size).
+    ///
+    /// Elements can be larger than this, but if this happens too often inside a BTree node
+    /// the block might need to be re-allocated, which causes memory fragmentation on the disk
+    /// and some main memory overhead for remembering the re-allocated block IDs.
+    pub fn with_max_element_size(mut self, est_max_elem_size: usize) -> Self {
+        self.est_max_elem_size = est_max_elem_size;
+        self
+    }
+
+    /// Sets the order of the tree, which determines how many elements a single node can store.
+    pub fn with_order(mut self, order: usize) -> Self {
+        self.order = order;
+        self
+    }
+}
+
 impl<K, V> BtreeIndex<K, V>
 where
     K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord,
     V: Serialize + DeserializeOwned + Clone,
 {
-    /// Create a new instance with the given capacity in bytes.
-    pub fn with_capacity(capacity: usize) -> Result<BtreeIndex<K, V>> {
-        let mut file = TemporaryBlockFile::with_capacity(capacity)?;
+    /// Create a new instance with the given configuration and capacity in number of elements.
+    pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
+        // Estimate the needed block size for the root node
+        let empty_struct_size = std::mem::size_of::<NodeBlock<K, V>>();
+        let keys_vec_size = config.order * config.est_max_elem_size;
+        let child_nodes_size = (config.order + 1) * std::mem::size_of::<usize>();
+        let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
+
+        let mut file =
+            TemporaryBlockFile::with_capacity(capacity * (block_size + BlockHeader::size()))?;
 
         // Always add an empty root node
-        let root_id = file.allocate_block(MIN_BLOCK_SIZE)?;
+        let root_id = file.allocate_block(page_aligned_capacity(block_size))?;
         let root_node = NodeBlock {
             child_nodes: Vec::default(),
             keys: Vec::default(),
@@ -67,7 +104,7 @@ where
         Ok(BtreeIndex {
             root_id,
             file,
-            order: 128,
+            order: config.order,
         })
     }
 
@@ -183,7 +220,7 @@ where
             .pop()
             .ok_or_else(|| Error::EmptyChildNodeInSplit)?;
         parent.keys.insert(i, split_key);
-        parent.child_nodes.insert(i+1, new_node_id);
+        parent.child_nodes.insert(i + 1, new_node_id);
 
         // Save all changed files
         self.file.put(new_node.id, &new_node)?;
@@ -198,13 +235,15 @@ where
 mod tests {
     use crate::BtreeIndex;
 
-    use super::MIN_BLOCK_SIZE;
+    use super::*;
 
     #[test]
     fn insert_get_static_size() {
         let nr_entries = 2000;
 
-        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(MIN_BLOCK_SIZE).unwrap();
+        let config = BtreeConfig::default().with_max_element_size(16);
+
+        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
 
         t.insert(0, 42).unwrap();
 

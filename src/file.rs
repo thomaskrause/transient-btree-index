@@ -137,7 +137,7 @@ where
     /// blocks with a larger size than originally allocated.
     pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         let relocated_block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
-        
+
         // Check there is still enough space in the block
         let (update_fits, new_used_size) = self.can_update(relocated_block_id, block)?;
         let block_id = if update_fits {
