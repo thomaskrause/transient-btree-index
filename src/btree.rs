@@ -4,15 +4,14 @@ use crate::{
     Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use serde_derive::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
 struct Key<K, V> {
     key: K,
     payload: V,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
 struct NodeBlock<K, V> {
     id: usize,
     keys: Vec<Key<K, V>>,
