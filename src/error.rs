@@ -11,6 +11,8 @@ pub enum Error {
     ExistingBlockTooSmall { block_id: usize, needed: u64 },
     #[error("When trying to insert a non-existing key, the found node block was internal and not a leaf node")]
     InsertFoundInternalNode,    
+    #[error("Splitting a node resulted in an empty child node.")]
+    EmptyChildNodeInSplit,
     #[error(transparent)]
     IO(#[from] std::io::Error),
     #[error(transparent)]

@@ -7,9 +7,12 @@ use serde::{de::DeserializeOwned, Serialize};
 
 /// Return a value that is at least the given capacity, but ensures the block ends at a memory page
 pub fn page_aligned_capacity(capacity: usize) -> usize {
-    let residual = capacity % PAGE_SIZE;
+    let mut num_full_pages = capacity / PAGE_SIZE;
+    if capacity % PAGE_SIZE != 0 {
+        num_full_pages += 1;
+    }
     // Make sure there is enough space for the block header
-    (capacity + residual) - BlockHeader::size()
+    (num_full_pages * PAGE_SIZE) - BlockHeader::size()
 }
 
 /// Representation of a header at the start of each block.
@@ -133,15 +136,18 @@ where
     /// The old block will remain empty. So try to avoid writing any
     /// blocks with a larger size than originally allocated.
     pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
+        let relocated_block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+        
         // Check there is still enough space in the block
-        let (update_fits, new_used_size) = self.can_update(block_id, block)?;
-        let block_id = if !update_fits {
+        let (update_fits, new_used_size) = self.can_update(relocated_block_id, block)?;
+        let block_id = if update_fits {
+            relocated_block_id
+        } else {
+            // Relocate (possible again) to a new block with double the size
             let new_used_size: usize = new_used_size.try_into()?;
             let new_block_id = self.allocate_block(page_aligned_capacity(new_used_size * 2))?;
             self.relocated_blocks.insert(block_id, new_block_id);
             new_block_id
-        } else {
-            block_id
         };
 
         // Update the header with the new size
