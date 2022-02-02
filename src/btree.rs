@@ -49,33 +49,33 @@ where
     {
         // Get first matching index
         let start_offset = match range.start_bound() {
-            Bound::Included(key) => self.keys.binary_search_by(|e| e.key.cmp(key)),
+            Bound::Included(key) => match  self.keys.binary_search_by(|e| e.key.cmp(key)) {
+                Ok(i) => i,
+                Err(i) => i,
+            },
             Bound::Excluded(key) => match self.keys.binary_search_by(|e| e.key.cmp(&key)) {
                 // Key was found, but should be excluded, so
-                Ok(i) => Ok(i + 1),
-                Err(i) => Ok(i),
+                Ok(i) => i + 1,
+                Err(i) => i,
             },
-            Bound::Unbounded => Ok(0),
+            Bound::Unbounded => 0,
         };
 
-        if let Ok(start_offset) = start_offset {
-            let mut result = Vec::with_capacity(self.keys.len() - start_offset);
-            for i in start_offset..self.keys.len() {
-                let included = match range.end_bound() {
-                    Bound::Included(end) => &self.keys[i].key <= end,
-                    Bound::Excluded(end) => &self.keys[i].key < end,
-                    Bound::Unbounded => true,
-                };
-                if included {
-                    result.push(i)
-                } else {
-                    break;
-                }
+        let mut result = Vec::with_capacity(self.keys.len() - start_offset);
+        for i in start_offset..self.keys.len() {
+            let included = match range.end_bound() {
+                Bound::Included(end) => &self.keys[i].key <= end,
+                Bound::Excluded(end) => &self.keys[i].key < end,
+                Bound::Unbounded => true,
+            };
+            if included {
+                result.push(i)
+            } else {
+                break;
             }
-            result
-        } else {
-            vec![]
         }
+        result
+    
     }
 }
 
