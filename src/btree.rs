@@ -43,7 +43,7 @@ where
     }
 
     /// Finds all indexes in the key list that are part of the given range.
-    fn find_range<R>(&self, range: R) -> Vec<usize>
+    fn find_range<R>(&self, range: &R) -> Vec<usize>
     where
         R: RangeBounds<K>,
     {
@@ -199,14 +199,15 @@ where
         R: RangeBounds<K>,
     {
         // Start to search at the root node
-        let root = self.file.get(self.root_id)?;
-        // let result = Range {
-        //     node: root,
-        //     start: range.start_bound().cloned(),
-        //     end: range.end_bound().cloned(),
-        //     exhausted: false,
-        // };
-        todo!()
+        let root = Rc::new(self.file.get(self.root_id)?);
+        let idx_range = root.find_range(&range);
+        let stack = idx_range.into_iter().map(|i| (root.clone(), i)).collect();
+        let result = Range {
+            stack,
+            start: range.start_bound().cloned(),
+            end: range.end_bound().cloned(),
+        };
+        Ok(result)
     }
 
     fn search(&self, node: NodeBlock<K, V>, key: &K) -> Result<Option<(NodeBlock<K, V>, usize)>> {
@@ -314,11 +315,7 @@ where
     type Item = Result<(K, V)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // if self.exhausted {
-        //     return None;
-        // }
-
-        todo!()
+        todo!("Depth first search to implement range query")
     }
 }
 
