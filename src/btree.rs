@@ -43,13 +43,13 @@ where
     }
 
     /// Finds all indexes in the key list that are part of the given range.
-    fn find_range<R>(&self, range: &R) -> Vec<usize>
+    fn find_range<R>(&self, range: R) -> Vec<usize>
     where
         R: RangeBounds<K>,
     {
         // Get first matching index
         let start_offset = match range.start_bound() {
-            Bound::Included(key) => self.keys.binary_search_by(|e| e.key.cmp(&key)),
+            Bound::Included(key) => self.keys.binary_search_by(|e| e.key.cmp(key)),
             Bound::Excluded(key) => match self.keys.binary_search_by(|e| e.key.cmp(&key)) {
                 // Key was found, but should be excluded, so
                 Ok(i) => Ok(i + 1),
@@ -200,12 +200,19 @@ where
     {
         // Start to search at the root node
         let root = Rc::new(self.file.get(self.root_id)?);
-        let idx_range = root.find_range(&range);
-        let stack = idx_range.into_iter().map(|i| (root.clone(), i)).collect();
+        let start = range.start_bound().cloned();
+        let end = range.end_bound().cloned();
+        let idx_range = root.find_range(range);
+        let stack = idx_range
+            .into_iter()
+            .rev()
+            .map(|i| (root.clone(), i))
+            .collect();
         let result = Range {
             stack,
-            start: range.start_bound().cloned(),
-            end: range.end_bound().cloned(),
+            start,
+            end,
+            file: &self.file,
         };
         Ok(result)
     }
@@ -301,21 +308,40 @@ where
     }
 }
 
-pub struct Range<K, V> {
+pub struct Range<'a, K, V> {
     start: Bound<K>,
     end: Bound<K>,
+    file: &'a TemporaryBlockFile<NodeBlock<K, V>>,
     stack: Vec<(Rc<NodeBlock<K, V>>, usize)>,
 }
 
-impl<K, V> Iterator for Range<K, V>
+impl<'a, K, V> Iterator for Range<'a, K, V>
 where
-    K: Clone + Ord,
-    V: Clone,
+    K: Clone + Serialize + DeserializeOwned + Ord,
+    V: Clone + Serialize + DeserializeOwned,
 {
     type Item = Result<(K, V)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!("Depth first search to implement range query")
+        if let Some((node, i)) = self.stack.pop() {
+            let result = node.keys[i].clone().into();
+            // Get child node large than this value and add it to the stack
+            if let Some(c_id) = node.child_nodes.get(i + 1) {
+                match self.file.get(*c_id) {
+                    Ok(c) => {
+                        let c = Rc::from(c);
+                        let matching_child_idx =
+                            c.find_range((self.start.clone(), self.end.clone()));
+                        self.stack
+                            .extend(matching_child_idx.into_iter().rev().map(|i| (c.clone(), i)));
+                    }
+                    Err(e) => return Some(Err(e)),
+                }
+            }
+            Some(Ok(result))
+        } else {
+            None
+        }
     }
 }
 
@@ -347,5 +373,24 @@ mod tests {
             let v = t.get(&i).unwrap();
             assert_eq!(Some(i), v);
         }
+    }
+
+    #[test]
+    fn range_query() {
+        let nr_entries = 2000;
+
+        let config = BtreeConfig::default().with_max_element_size(16);
+
+        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
+
+        for i in 0..nr_entries {
+            t.insert(i, i).unwrap();
+        }
+
+        let result : Result<Vec<_>> = t.range(40..1024).unwrap().collect();
+        let result = result.unwrap();
+        assert_eq!(1024-40, result.len());
+        assert_eq!(40, result[0].0);
+        assert_eq!(40, result[0].1);
     }
 }
