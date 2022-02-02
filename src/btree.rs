@@ -1,3 +1,8 @@
+use std::{
+    ops::{Bound, RangeBounds},
+    rc::Rc,
+};
+
 use crate::{
     error::Result,
     file::{page_aligned_capacity, BlockHeader, TemporaryBlockFile},
@@ -11,6 +16,12 @@ struct Key<K, V> {
     payload: V,
 }
 
+impl<K, V> Into<(K, V)> for Key<K, V> {
+    fn into(self) -> (K, V) {
+        (self.key, self.payload)
+    }
+}
+
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
 struct NodeBlock<K, V> {
     id: usize,
@@ -20,7 +31,7 @@ struct NodeBlock<K, V> {
 
 impl<K, V> NodeBlock<K, V>
 where
-    K: Clone,
+    K: Clone + Ord,
     V: Clone,
 {
     fn number_of_keys(&self) -> usize {
@@ -29,6 +40,42 @@ where
 
     fn is_leaf(&self) -> bool {
         self.child_nodes.is_empty()
+    }
+
+    /// Finds all indexes in the key list that are part of the given range.
+    fn find_range<R>(&self, range: R) -> Vec<usize>
+    where
+        R: RangeBounds<K>,
+    {
+        // Get first matching index
+        let start_offset = match range.start_bound() {
+            Bound::Included(key) => self.keys.binary_search_by(|e| e.key.cmp(&key)),
+            Bound::Excluded(key) => match self.keys.binary_search_by(|e| e.key.cmp(&key)) {
+                // Key was found, but should be excluded, so
+                Ok(i) => Ok(i + 1),
+                Err(i) => Ok(i),
+            },
+            Bound::Unbounded => Ok(0),
+        };
+
+        if let Ok(start_offset) = start_offset {
+            let mut result = Vec::with_capacity(self.keys.len() - start_offset);
+            for i in start_offset..self.keys.len() {
+                let included = match range.end_bound() {
+                    Bound::Included(end) => &self.keys[i].key <= end,
+                    Bound::Excluded(end) => &self.keys[i].key < end,
+                    Bound::Unbounded => true,
+                };
+                if included {
+                    result.push(i)
+                } else {
+                    break;
+                }
+            }
+            result
+        } else {
+            vec![]
+        }
     }
 }
 
@@ -147,6 +194,21 @@ where
         self.empty
     }
 
+    pub fn range<R>(&self, range: R) -> Result<Range<K, V>>
+    where
+        R: RangeBounds<K>,
+    {
+        // Start to search at the root node
+        let root = self.file.get(self.root_id)?;
+        // let result = Range {
+        //     node: root,
+        //     start: range.start_bound().cloned(),
+        //     end: range.end_bound().cloned(),
+        //     exhausted: false,
+        // };
+        todo!()
+    }
+
     fn search(&self, node: NodeBlock<K, V>, key: &K) -> Result<Option<(NodeBlock<K, V>, usize)>> {
         let mut i = 0;
         while i < node.number_of_keys() && key > &node.keys[i].key {
@@ -235,6 +297,28 @@ where
         self.file.put(existing_node.id, &existing_node)?;
 
         Ok(())
+    }
+}
+
+pub struct Range<K, V> {
+    start: Bound<K>,
+    end: Bound<K>,
+    stack: Vec<(Rc<NodeBlock<K, V>>, usize)>,
+}
+
+impl<K, V> Iterator for Range<K, V>
+where
+    K: Clone + Ord,
+    V: Clone,
+{
+    type Item = Result<(K, V)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // if self.exhausted {
+        //     return None;
+        // }
+
+        todo!()
     }
 }
 
