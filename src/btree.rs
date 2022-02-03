@@ -187,7 +187,7 @@ where
     file: TemporaryBlockFile<NodeBlock<K, V>>,
     root_id: usize,
     order: usize,
-    empty: bool,
+    nr_elements: usize,
 }
 
 pub struct BtreeConfig {
@@ -251,7 +251,7 @@ where
             root_id,
             file,
             order: config.order,
-            empty: true,
+            nr_elements: 0,
         })
     }
 
@@ -265,8 +265,7 @@ where
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<()> {
-        self.empty = false;
-
+        
         let mut root_node = self.file.get(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current one is full
@@ -290,7 +289,11 @@ where
     }
 
     pub fn is_empty(&self) -> bool {
-        self.empty
+        self.nr_elements == 0
+    }
+
+    pub fn len(&self) -> usize {
+        self.nr_elements
     }
 
     pub fn range<R>(&self, range: R) -> Result<Range<K, V>>
@@ -350,6 +353,7 @@ where
                         },
                     );
                     self.file.put(node.id, node)?;
+                    self.nr_elements += 1;
                 } else {
                     // Insert key into correct child
                     // Default to left child
@@ -477,9 +481,14 @@ mod tests {
         t.insert(0, 42).unwrap();
 
         assert_eq!(false, t.is_empty());
+        assert_eq!(1, t.len());
+
         for i in 1..nr_entries {
             t.insert(i, i).unwrap();
         }
+
+        assert_eq!(false, t.is_empty());
+        assert_eq!(nr_entries as usize, t.len());
 
         assert_eq!(Some(42), t.get(&0).unwrap());
         for i in 1..nr_entries {
@@ -489,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn range_query() {
+    fn range_query_dense() {
         let nr_entries = 2000;
 
         let config = BtreeConfig::default().with_max_element_size(16);
@@ -500,10 +509,46 @@ mod tests {
             t.insert(i, i).unwrap();
         }
 
+        // Get sub-range
         let result: Result<Vec<_>> = t.range(40..1024).unwrap().collect();
         let result = result.unwrap();
-        assert_eq!(1024 - 40, result.len());
-        assert_eq!(40, result[0].0);
-        assert_eq!(40, result[0].1);
+        assert_eq!(984, result.len());
+        assert_eq!((40, 40), result[0]);
+        assert_eq!((1023, 1023), result[983]);
+
+        // Get complete range
+        let result: Result<Vec<_>> = t.range(..).unwrap().collect();
+        let result = result.unwrap();
+        assert_eq!(2000, result.len());
+        assert_eq!((0,0), result[0]);
+        assert_eq!((1999,1999), result[1999]);
+        
+    }
+
+    #[test]
+    fn range_query_sparse() {
+        let config = BtreeConfig::default().with_max_element_size(4);
+
+        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 200).unwrap();
+
+        for i in (0..2000).step_by(10) {
+            t.insert(i, i).unwrap();
+        }
+
+        assert_eq!(200, t.len());
+
+        // Get sub-range
+        let result: Result<Vec<_>> = t.range(40..1200).unwrap().collect();
+        let result = result.unwrap();
+        assert_eq!(116 , result.len());
+        assert_eq!((40, 40), result[0]);
+
+        // Get complete range
+        let result: Result<Vec<_>> = t.range(..).unwrap().collect();
+        let result = result.unwrap();
+        assert_eq!(200, result.len());
+        assert_eq!((0,0), result[0]);
+        assert_eq!((1990,1990), result[199]);
+
     }
 }
