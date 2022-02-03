@@ -149,16 +149,26 @@ where
                 result.push(item.clone());
 
                 // get the next candidate
-                candidate = match item {
-                    StackEntry::Child { parent, idx } => Some(StackEntry::Key {
+                let next_candidate = match item {
+                    StackEntry::Child { parent, idx } => StackEntry::Key {
                         node: parent.clone(),
                         idx: *idx,
-                    }),
-                    StackEntry::Key { node, idx } => Some(StackEntry::Child {
-                        parent: node.clone(),
-                        idx: *idx + 1,
-                    }),
+                    },
+                    StackEntry::Key { node, idx } => {
+                        if node.is_leaf() {
+                            StackEntry::Key {
+                                node: node.clone(),
+                                idx: *idx + 1,
+                            }
+                        } else {
+                            StackEntry::Child {
+                                parent: node.clone(),
+                                idx: *idx + 1,
+                            }
+                        }
+                    }
                 };
+                candidate = Some(next_candidate);
             } else {
                 candidate = None;
             }

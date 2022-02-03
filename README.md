@@ -15,6 +15,7 @@ Because of its intended use case, it is therefore not possible to
 
 ## TODOs
 
-- [ ] range queries
+- [X] range queries
 - [ ] quick len() implementation
 - [ ] performance optimization
+- [ ] increasing test coverage
