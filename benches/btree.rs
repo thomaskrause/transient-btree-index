@@ -4,12 +4,12 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use fake::{Fake, Faker};
 use transient_btree_index::{BtreeConfig, BtreeIndex};
 
-fn criterion_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("large-btree");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(15));
+fn insertion_benchmark(c: &mut Criterion) {
+    let mut g_insertion = c.benchmark_group("insertion");
+    g_insertion.sample_size(20);
+    g_insertion.measurement_time(Duration::from_secs(60));
 
-    group.bench_function("insert 10.000 strings", |b| {
+    g_insertion.bench_function("insert 10.000 strings", |b| {
         let n_entries = 10_000;
         let name_faker = fake::faker::name::en::Name();
         // Create some random strings to insert
@@ -28,8 +28,11 @@ fn criterion_benchmark(c: &mut Criterion) {
             }
         })
     });
+}
+fn search_benchmark(c: &mut Criterion) {
+    let mut g_search = c.benchmark_group("search");
 
-    group.bench_function("search existing string", |b| {
+    g_search.bench_function("search existing string", |b| {
         let n_entries = 10_000;
         let name_faker = fake::faker::name::en::Name();
 
@@ -57,5 +60,5 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(benches, insertion_benchmark, search_benchmark);
 criterion_main!(benches);
