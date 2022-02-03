@@ -42,40 +42,60 @@ where
         self.child_nodes.is_empty()
     }
 
-    /// Finds all indexes in the key list that are part of the given range.
-    fn find_range<R>(&self, range: R) -> Vec<usize>
+    /// Finds all children and keys that are inside the range
+    fn find_range<R>(self, range: R) -> Vec<StackEntry<K, V>>
     where
         R: RangeBounds<K>,
     {
-        // Get first matching index
-        let start_offset = match range.start_bound() {
-            Bound::Included(key) => match  self.keys.binary_search_by(|e| e.key.cmp(key)) {
-                Ok(i) => i,
-                Err(i) => i,
-            },
-            Bound::Excluded(key) => match self.keys.binary_search_by(|e| e.key.cmp(&key)) {
-                // Key was found, but should be excluded, so
-                Ok(i) => i + 1,
-                Err(i) => i,
-            },
-            Bound::Unbounded => 0,
-        };
+        // Get first matching index for both the key and children list
+        match range.start_bound() {
+            Bound::Included(key) => {
+                let key_pos = self.keys.binary_search_by(|e| e.key.cmp(key));
+                let start_key = match &key_pos {
+                    // Key was found, start at this position
+                    Ok(i) => *i,
+                    // Key not found, but key would be inserted at i, so the next key should be checked
+                    Err(i) => i + 1,
+                };
+                let start_child = match key_pos {
+                    // Key was found, add the child right of it.
+                    // E.g. when the key list ist [2,4,8], the child is [c0, c1, c2, c3] and we search for 4,
+                    // i would be 1 and we need to check c2, which has index 2 in the child list
+                    // (the flattened representation would be [c0, 2, c1, 4, c2, 8, c3 ].
+                    Ok(i) => i + 1,
+                    // Key not found, but the child at where it would be inserted at could contain it.
+                    // E.g. when the key list ist [2,4,8] and we search for 1, i would be 0 and we need to check the first child
+                    Err(i) => i,
+                };
 
-        let mut result = Vec::with_capacity(self.keys.len() - start_offset);
-        for i in start_offset..self.keys.len() {
-            let included = match range.end_bound() {
-                Bound::Included(end) => &self.keys[i].key <= end,
-                Bound::Excluded(end) => &self.keys[i].key < end,
-                Bound::Unbounded => true,
-            };
-            if included {
-                result.push(i)
-            } else {
-                break;
+                let node = Rc::new(self);
+
+                let mut result = Vec::with_capacity((node.keys.len() - start_key) * 2);
+                // Add both the children and keys in correct order to the stack
+                if node.is_leaf() {
+                    for i in start_key..node.keys.len() {
+                        let included = match range.end_bound() {
+                            Bound::Included(end) => &node.keys[i].key <= end,
+                            Bound::Excluded(end) => &node.keys[i].key < end,
+                            Bound::Unbounded => true,
+                        };
+                        if included {
+                            result.push(StackEntry::Key {
+                                node: node.clone(),
+                                idx: i,
+                            });
+                        } else {
+                            break;
+                        }
+                    }
+                } else {
+                    todo!()
+                }
+                result
             }
+            Bound::Excluded(key) => todo!(),
+            Bound::Unbounded => todo!(),
         }
-        result
-    
     }
 }
 
@@ -199,15 +219,12 @@ where
         R: RangeBounds<K>,
     {
         // Start to search at the root node
-        let root = Rc::new(self.file.get(self.root_id)?);
+        let root = self.file.get(self.root_id)?;
         let start = range.start_bound().cloned();
         let end = range.end_bound().cloned();
-        let idx_range = root.find_range(range);
-        let stack = idx_range
-            .into_iter()
-            .rev()
-            .map(|i| (root.clone(), i))
-            .collect();
+        let mut stack = root.find_range(range);
+        stack.reverse();
+
         let result = Range {
             stack,
             start,
@@ -308,11 +325,22 @@ where
     }
 }
 
+enum StackEntry<K, V> {
+    Child {
+        parent: Rc<NodeBlock<K, V>>,
+        idx: usize,
+    },
+    Key {
+        node: Rc<NodeBlock<K, V>>,
+        idx: usize,
+    },
+}
+
 pub struct Range<'a, K, V> {
     start: Bound<K>,
     end: Bound<K>,
     file: &'a TemporaryBlockFile<NodeBlock<K, V>>,
-    stack: Vec<(Rc<NodeBlock<K, V>>, usize)>,
+    stack: Vec<StackEntry<K, V>>,
 }
 
 impl<'a, K, V> Iterator for Range<'a, K, V>
@@ -323,22 +351,22 @@ where
     type Item = Result<(K, V)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some((node, i)) = self.stack.pop() {
-            let result = node.keys[i].clone().into();
-            // Get child node large than this value and add it to the stack
-            if let Some(c_id) = node.child_nodes.get(i + 1) {
-                match self.file.get(*c_id) {
-                    Ok(c) => {
-                        let c = Rc::from(c);
-                        let matching_child_idx =
-                            c.find_range((self.start.clone(), self.end.clone()));
-                        self.stack
-                            .extend(matching_child_idx.into_iter().rev().map(|i| (c.clone(), i)));
+        if let Some(e) = self.stack.pop() {
+            match e {
+                StackEntry::Child { parent, idx } => {
+                    match self.file.get(parent.child_nodes[idx]) {
+                        Ok(c) => {
+                            // Add all entries for this child node on the stack
+                            todo!()
+                        }
+                        Err(e) => return Some((Err(e))),
                     }
-                    Err(e) => return Some(Err(e)),
+                }
+                StackEntry::Key { node, idx } => {
+                    let result = node.keys[idx].clone().into();
+                    Some(Ok(result))
                 }
             }
-            Some(Ok(result))
         } else {
             None
         }
@@ -387,9 +415,9 @@ mod tests {
             t.insert(i, i).unwrap();
         }
 
-        let result : Result<Vec<_>> = t.range(40..1024).unwrap().collect();
+        let result: Result<Vec<_>> = t.range(40..1024).unwrap().collect();
         let result = result.unwrap();
-        assert_eq!(1024-40, result.len());
+        assert_eq!(1024 - 40, result.len());
         assert_eq!(40, result[0].0);
         assert_eq!(40, result[0].1);
     }
