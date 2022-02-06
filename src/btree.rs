@@ -1,4 +1,5 @@
 use std::{
+    marker::PhantomData,
     ops::{Bound, RangeBounds},
     rc::Rc,
 };
@@ -11,28 +12,27 @@ use crate::{
 use serde::{de::DeserializeOwned, Serialize};
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
-struct Key<K, V> {
+struct Key<K> {
     key: K,
-    payload: V,
+    payload_id: usize,
 }
 
-impl<K, V> Into<(K, V)> for Key<K, V> {
-    fn into(self) -> (K, V) {
-        (self.key, self.payload)
+impl<K> Into<(K, usize)> for Key<K> {
+    fn into(self) -> (K, usize) {
+        (self.key, self.payload_id)
     }
 }
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
-struct NodeBlock<K, V> {
+struct NodeBlock<K> {
     id: usize,
-    keys: Vec<Key<K, V>>,
+    keys: Vec<Key<K>>,
     child_nodes: Vec<usize>,
 }
 
-fn find_first_candidate<K, V>(node: Rc<NodeBlock<K, V>>, start_bound: Bound<&K>) -> StackEntry<K, V>
+fn find_first_candidate<K>(node: Rc<NodeBlock<K>>, start_bound: Bound<&K>) -> StackEntry<K>
 where
     K: Ord + Clone,
-    V: Clone,
 {
     match start_bound {
         Bound::Included(key) => {
@@ -108,10 +108,9 @@ where
     }
 }
 
-impl<K, V> NodeBlock<K, V>
+impl<K> NodeBlock<K>
 where
     K: Clone + Ord,
-    V: Clone,
 {
     fn number_of_keys(&self) -> usize {
         self.keys.len()
@@ -122,7 +121,7 @@ where
     }
 
     /// Finds all children and keys that are inside the range
-    fn find_range<R>(self, range: R) -> Vec<StackEntry<K, V>>
+    fn find_range<R>(self, range: R) -> Vec<StackEntry<K>>
     where
         R: RangeBounds<K>,
     {
@@ -184,7 +183,8 @@ where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
     V: Serialize + DeserializeOwned + Clone,
 {
-    file: TemporaryBlockFile<NodeBlock<K, V>>,
+    keys: TemporaryBlockFile<NodeBlock<K>>,
+    values: TemporaryBlockFile<V>,
     root_id: usize,
     order: usize,
     nr_elements: usize,
@@ -230,51 +230,55 @@ where
     /// Create a new instance with the given configuration and capacity in number of elements.
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
         // Estimate the needed block size for the root node
-        let empty_struct_size = std::mem::size_of::<NodeBlock<K, V>>();
+        let empty_struct_size = std::mem::size_of::<NodeBlock<K>>();
         let keys_vec_size = config.order * config.est_max_elem_size;
         let child_nodes_size = (config.order + 1) * std::mem::size_of::<usize>();
         let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
 
-        let mut file =
+        let mut keys =
             TemporaryBlockFile::with_capacity(capacity * (block_size + BlockHeader::size()))?;
+        let values = TemporaryBlockFile::with_capacity(
+            (capacity * config.est_max_elem_size) + BlockHeader::size(),
+        )?;
 
         // Always add an empty root node
-        let root_id = file.allocate_block(page_aligned_capacity(block_size))?;
+        let root_id = keys.allocate_block(page_aligned_capacity(block_size))?;
         let root_node = NodeBlock {
             child_nodes: Vec::default(),
             keys: Vec::default(),
             id: root_id,
         };
-        file.put(root_id, &root_node)?;
+        keys.put(root_id, &root_node)?;
 
         Ok(BtreeIndex {
             root_id,
-            file,
+            keys,
+            values,
             order: config.order,
             nr_elements: 0,
         })
     }
 
     pub fn get(&self, key: &K) -> Result<Option<V>> {
-        let root_node = self.file.get(self.root_id)?;
+        let root_node = self.keys.get(self.root_id)?;
         if let Some((node, i)) = self.search(root_node, key)? {
-            Ok(Some(node.keys[i].payload.clone()))
+            let v = self.values.get(node.keys[i].payload_id)?;
+            Ok(Some(v))
         } else {
             Ok(None)
         }
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<()> {
-        
-        let mut root_node = self.file.get(self.root_id)?;
+        let mut root_node = self.keys.get(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current one is full
-            let current_root_size = self.file.serialized_size(&root_node)?;
+            let current_root_size = self.keys.serialized_size(&root_node)?;
             let new_root_id = self
-                .file
+                .keys
                 .allocate_block(page_aligned_capacity(current_root_size.try_into()?))?;
 
-            let mut new_root: NodeBlock<K, V> = NodeBlock {
+            let mut new_root: NodeBlock<K> = NodeBlock {
                 id: new_root_id,
                 keys: vec![],
                 child_nodes: vec![root_node.id],
@@ -301,7 +305,7 @@ where
         R: RangeBounds<K>,
     {
         // Start to search at the root node
-        let root = self.file.get(self.root_id)?;
+        let root = self.keys.get(self.root_id)?;
         let start = range.start_bound().cloned();
         let end = range.end_bound().cloned();
         let mut stack = root.find_range(range);
@@ -313,12 +317,14 @@ where
             stack,
             start,
             end,
-            file: &self.file,
+            keys: &self.keys,
+            values: &self.values,
+            phantom: PhantomData,
         };
         Ok(result)
     }
 
-    fn search(&self, node: NodeBlock<K, V>, key: &K) -> Result<Option<(NodeBlock<K, V>, usize)>> {
+    fn search(&self, node: NodeBlock<K>, key: &K) -> Result<Option<(NodeBlock<K>, usize)>> {
         let mut i = 0;
         while i < node.number_of_keys() && key > &node.keys[i].key {
             i += 1;
@@ -330,40 +336,44 @@ where
         } else {
             // search in the matching child node
             let child_block_id = node.child_nodes[i];
-            let child_node = self.file.get(child_block_id)?;
+            let child_node = self.keys.get(child_block_id)?;
             self.search(child_node, key)
         }
     }
 
-    fn insert_nonfull(&mut self, node: &mut NodeBlock<K, V>, key: &K, value: V) -> Result<()> {
+    fn insert_nonfull(&mut self, node: &mut NodeBlock<K>, key: &K, value: V) -> Result<()> {
         match node.keys.binary_search_by(|e| e.key.cmp(key)) {
             Ok(i) => {
                 // Key already exists, replace the payload
-                node.keys[i].payload = value;
-                self.file.put(node.id, node)?;
+                self.values.put(node.keys[i].payload_id, &value)?;
             }
             Err(i) => {
                 if node.is_leaf() {
                     // Insert new key with payload at the given position
+                    let value_size: usize = self.values.serialized_size(&value)?.try_into()?;
+                    let payload_id = self
+                        .values
+                        .allocate_block(value_size + BlockHeader::size())?;
+                    self.values.put(payload_id, &value)?;
                     node.keys.insert(
                         i,
                         Key {
                             key: key.clone(),
-                            payload: value,
+                            payload_id,
                         },
                     );
-                    self.file.put(node.id, node)?;
+                    self.keys.put(node.id, node)?;
                     self.nr_elements += 1;
                 } else {
                     // Insert key into correct child
                     // Default to left child
-                    let mut c = self.file.get(node.child_nodes[i])?;
+                    let mut c = self.keys.get(node.child_nodes[i])?;
                     // If the child is full, we need to split it
                     if c.number_of_keys() == (2 * self.order) - 1 {
                         self.split_child(node, i)?;
                         if key > &node.keys[i].key {
                             // Key is now larger, use the newly created right child
-                            c = self.file.get(node.child_nodes[i + 1])?;
+                            c = self.keys.get(node.child_nodes[i + 1])?;
                         }
                     }
                     self.insert_nonfull(&mut c, key, value)?;
@@ -373,12 +383,12 @@ where
         Ok(())
     }
 
-    fn split_child(&mut self, parent: &mut NodeBlock<K, V>, i: usize) -> Result<()> {
+    fn split_child(&mut self, parent: &mut NodeBlock<K>, i: usize) -> Result<()> {
         // Allocate a new block and use the original child block capacity as hint for the needed capacity
-        let mut existing_node = self.file.get(parent.child_nodes[i])?;
-        let existing_node_size = self.file.serialized_size(&existing_node)?;
+        let mut existing_node = self.keys.get(parent.child_nodes[i])?;
+        let existing_node_size = self.keys.serialized_size(&existing_node)?;
         let new_node_id = self
-            .file
+            .keys
             .allocate_block(page_aligned_capacity(existing_node_size.try_into()?))?;
 
         let new_node_keys = existing_node.keys.split_off(self.order + 1);
@@ -402,22 +412,22 @@ where
         parent.child_nodes.insert(i + 1, new_node_id);
 
         // Save all changed files
-        self.file.put(new_node.id, &new_node)?;
-        self.file.put(parent.id, parent)?;
-        self.file.put(existing_node.id, &existing_node)?;
+        self.keys.put(new_node.id, &new_node)?;
+        self.keys.put(parent.id, parent)?;
+        self.keys.put(existing_node.id, &existing_node)?;
 
         Ok(())
     }
 }
 
 #[derive(Clone)]
-enum StackEntry<K, V> {
+enum StackEntry<K> {
     Child {
-        parent: Rc<NodeBlock<K, V>>,
+        parent: Rc<NodeBlock<K>>,
         idx: usize,
     },
     Key {
-        node: Rc<NodeBlock<K, V>>,
+        node: Rc<NodeBlock<K>>,
         idx: usize,
     },
 }
@@ -425,8 +435,10 @@ enum StackEntry<K, V> {
 pub struct Range<'a, K, V> {
     start: Bound<K>,
     end: Bound<K>,
-    file: &'a TemporaryBlockFile<NodeBlock<K, V>>,
-    stack: Vec<StackEntry<K, V>>,
+    keys: &'a TemporaryBlockFile<NodeBlock<K>>,
+    values: &'a TemporaryBlockFile<V>,
+    stack: Vec<StackEntry<K>>,
+    phantom: PhantomData<V>,
 }
 
 impl<'a, K, V> Iterator for Range<'a, K, V>
@@ -440,7 +452,7 @@ where
         while let Some(e) = self.stack.pop() {
             match e {
                 StackEntry::Child { parent, idx } => {
-                    match self.file.get(parent.child_nodes[idx]) {
+                    match self.keys.get(parent.child_nodes[idx]) {
                         Ok(c) => {
                             // Add all entries for this child node on the stack
                             let mut new_elements =
@@ -452,8 +464,15 @@ where
                     }
                 }
                 StackEntry::Key { node, idx } => {
-                    let result = node.keys[idx].clone().into();
-                    return Some(Ok(result));
+                    let payload_id = node.keys[idx].payload_id;
+                    match self.values.get(payload_id) {
+                        Ok(v) => {
+                            return Some(Ok((node.keys[idx].key.clone(), v)));
+                        }
+                        Err(e) => {
+                            return Some(Err(e));
+                        }
+                    }
                 }
             }
         }
@@ -520,9 +539,8 @@ mod tests {
         let result: Result<Vec<_>> = t.range(..).unwrap().collect();
         let result = result.unwrap();
         assert_eq!(2000, result.len());
-        assert_eq!((0,0), result[0]);
-        assert_eq!((1999,1999), result[1999]);
-        
+        assert_eq!((0, 0), result[0]);
+        assert_eq!((1999, 1999), result[1999]);
     }
 
     #[test]
@@ -540,15 +558,14 @@ mod tests {
         // Get sub-range
         let result: Result<Vec<_>> = t.range(40..1200).unwrap().collect();
         let result = result.unwrap();
-        assert_eq!(116 , result.len());
+        assert_eq!(116, result.len());
         assert_eq!((40, 40), result[0]);
 
         // Get complete range
         let result: Result<Vec<_>> = t.range(..).unwrap().collect();
         let result = result.unwrap();
         assert_eq!(200, result.len());
-        assert_eq!((0,0), result[0]);
-        assert_eq!((1990,1990), result[199]);
-
+        assert_eq!((0, 0), result[0]);
+        assert_eq!((1990, 1990), result[199]);
     }
 }
