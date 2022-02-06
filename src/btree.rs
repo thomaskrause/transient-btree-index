@@ -192,26 +192,34 @@ where
 
 pub struct BtreeConfig {
     order: usize,
-    est_max_elem_size: usize,
+    est_max_key_size: usize,
+    est_max_value_size: usize,
 }
 
 impl Default for BtreeConfig {
     fn default() -> Self {
         Self {
             order: 128,
-            est_max_elem_size: 32,
+            est_max_key_size: 32,
+            est_max_value_size: 32,
         }
     }
 }
 
 impl BtreeConfig {
-    /// Set the estimated maximum size in bytes for each element (key + value size).
+    /// Set the estimated maximum size in bytes for each key.
     ///
-    /// Elements can be larger than this, but if this happens too often inside a BTree node
+    /// Keys can be larger than this, but if this happens too often inside a BTree node
     /// the block might need to be re-allocated, which causes memory fragmentation on the disk
     /// and some main memory overhead for remembering the re-allocated block IDs.
-    pub fn with_max_element_size(mut self, est_max_elem_size: usize) -> Self {
-        self.est_max_elem_size = est_max_elem_size;
+    pub fn with_max_key_size(mut self, est_max_key_size: usize) -> Self {
+        self.est_max_key_size = est_max_key_size;
+        self
+    }
+
+    /// Set the estimated maximum size in bytes for each values.
+    pub fn with_max_value_size(mut self, est_max_value_size: usize) -> Self {
+        self.est_max_value_size = est_max_value_size;
         self
     }
 
@@ -231,14 +239,14 @@ where
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
         // Estimate the needed block size for the root node
         let empty_struct_size = std::mem::size_of::<NodeBlock<K>>();
-        let keys_vec_size = config.order * config.est_max_elem_size;
+        let keys_vec_size = config.order * config.est_max_key_size;
         let child_nodes_size = (config.order + 1) * std::mem::size_of::<usize>();
         let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
 
         let mut keys =
             TemporaryBlockFile::with_capacity(capacity * (block_size + BlockHeader::size()))?;
         let values = TemporaryBlockFile::with_capacity(
-            (capacity * config.est_max_elem_size) + BlockHeader::size(),
+            (capacity * config.est_max_value_size) + BlockHeader::size(),
         )?;
 
         // Always add an empty root node
@@ -491,7 +499,9 @@ mod tests {
     fn insert_get_static_size() {
         let nr_entries = 2000;
 
-        let config = BtreeConfig::default().with_max_element_size(16);
+        let config = BtreeConfig::default()
+            .with_max_key_size(8)
+            .with_max_value_size(8);
 
         let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
 
@@ -520,7 +530,9 @@ mod tests {
     fn range_query_dense() {
         let nr_entries = 2000;
 
-        let config = BtreeConfig::default().with_max_element_size(16);
+        let config = BtreeConfig::default()
+            .with_max_key_size(8)
+            .with_max_value_size(8);
 
         let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
 
@@ -545,7 +557,9 @@ mod tests {
 
     #[test]
     fn range_query_sparse() {
-        let config = BtreeConfig::default().with_max_element_size(4);
+        let config = BtreeConfig::default()
+            .with_max_key_size(8)
+            .with_max_value_size(8);
 
         let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 200).unwrap();
 

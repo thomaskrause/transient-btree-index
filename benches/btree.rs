@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use fake::{Fake, Faker};
+use fake::{Fake, Faker, StringFaker};
 use transient_btree_index::{BtreeConfig, BtreeIndex};
 
 fn insertion_benchmark(c: &mut Criterion) {
     let mut g_insertion = c.benchmark_group("insertion");
     g_insertion.sample_size(20);
     g_insertion.measurement_time(Duration::from_secs(60));
+    const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let id_faker = StringFaker::with(Vec::from(ASCII), 8..16);
 
     g_insertion.bench_function("insert 10.000 strings", |b| {
         let n_entries = 10_000;
@@ -15,10 +17,12 @@ fn insertion_benchmark(c: &mut Criterion) {
         // Create some random strings to insert
         let mut entries: Vec<(String, String)> = Vec::with_capacity(n_entries);
         for _ in 0..n_entries {
-            entries.push((Faker.fake::<String>(), name_faker.fake()))
+            entries.push((id_faker.fake(), name_faker.fake()))
         }
 
-        let config = BtreeConfig::default().with_max_element_size(128);
+        let config = BtreeConfig::default()
+            .with_max_key_size(16)
+            .with_max_value_size(64);
 
         let mut btree: BtreeIndex<String, String> =
             BtreeIndex::with_capacity(config, n_entries).unwrap();
@@ -39,7 +43,9 @@ fn search_benchmark(c: &mut Criterion) {
         let search_key = Faker.fake::<String>();
         let search_value: String = name_faker.fake();
 
-        let config = BtreeConfig::default().with_max_element_size(128);
+        let config = BtreeConfig::default()
+            .with_max_key_size(64)
+            .with_max_value_size(64);
 
         let mut btree: BtreeIndex<String, String> =
             BtreeIndex::with_capacity(config, n_entries).unwrap();
