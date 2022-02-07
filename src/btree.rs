@@ -17,12 +17,6 @@ struct Key<K> {
     payload_id: usize,
 }
 
-impl<K> Into<(K, usize)> for Key<K> {
-    fn into(self) -> (K, usize) {
-        (self.key, self.payload_id)
-    }
-}
-
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
 struct NodeBlock<K> {
     id: usize,
@@ -378,10 +372,13 @@ where
                     let mut c = self.keys.get(node.child_nodes[i])?;
                     // If the child is full, we need to split it
                     if c.number_of_keys() == (2 * self.order) - 1 {
-                        self.split_child(node, i)?;
+                        let (left, right) = self.split_child(node, i)?;
                         if key > &node.keys[i].key {
                             // Key is now larger, use the newly created right child
-                            c = self.keys.get(node.child_nodes[i + 1])?;
+                            c = right;
+                        } else {
+                            // Use the updated left child (which has a new key vector)
+                            c = left;
                         }
                     }
                     self.insert_nonfull(&mut c, key, value)?;
@@ -391,7 +388,11 @@ where
         Ok(())
     }
 
-    fn split_child(&mut self, parent: &mut NodeBlock<K>, i: usize) -> Result<()> {
+    fn split_child(
+        &mut self,
+        parent: &mut NodeBlock<K>,
+        i: usize,
+    ) -> Result<(NodeBlock<K>, NodeBlock<K>)> {
         // Allocate a new block and use the original child block capacity as hint for the needed capacity
         let mut existing_node = self.keys.get(parent.child_nodes[i])?;
         let existing_node_size = self.keys.serialized_size(&existing_node)?;
@@ -424,7 +425,7 @@ where
         self.keys.put(parent.id, parent)?;
         self.keys.put(existing_node.id, &existing_node)?;
 
-        Ok(())
+        Ok((existing_node, new_node))
     }
 }
 
@@ -491,6 +492,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use crate::BtreeIndex;
 
     use super::*;
@@ -581,5 +584,33 @@ mod tests {
         assert_eq!(200, result.len());
         assert_eq!((0, 0), result[0]);
         assert_eq!((1990, 1990), result[199]);
+    }
+
+    #[test]
+    fn sorted_iterator() {
+        let config = BtreeConfig::default()
+            .with_max_key_size(64)
+            .with_max_value_size(64);
+
+        let mut t: BtreeIndex<Vec<u8>, bool> = BtreeIndex::with_capacity(config, 128).unwrap();
+
+        for a in 0..=255 {
+            t.insert(vec![1, a], true).unwrap();
+        }
+        for a in 0..=255 {
+            t.insert(vec![0, a], true).unwrap();
+        }
+        assert_eq!(512, t.len());
+
+        let mut previous: Option<Vec<u8>> = None;
+        for e in t.range(..).unwrap() {
+            let (k, _v) = e.unwrap();
+
+            if let Some(previous) = previous {
+                assert_eq!(Ordering::Less, previous.cmp(&k));
+            }
+
+            previous = Some(k);
+        }
     }
 }
