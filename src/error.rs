@@ -9,6 +9,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("Size of existing block (ID {block_id}) is too small to write new block. It needs {needed}.")]
     ExistingBlockTooSmall { block_id: usize, needed: u64 },
+    #[error("The order of the tree must be at least 2, but {0} was requested.")]
+    OrderTooSmall(usize),
     #[error("When trying to insert a non-existing key, the found node block was internal and not a leaf node")]
     InsertFoundInternalNode,
     #[error("Splitting a node resulted in an empty child node.")]

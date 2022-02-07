@@ -231,6 +231,11 @@ where
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
+
+        if config.order < 2 {
+            return Err(Error::OrderTooSmall(config.order));
+        }
+
         // Estimate the needed block size for the root node
         let empty_struct_size = std::mem::size_of::<NodeBlock<K>>();
         let keys_vec_size = config.order * config.est_max_key_size;
@@ -274,7 +279,7 @@ where
     pub fn insert(&mut self, key: K, value: V) -> Result<()> {
         let mut root_node = self.keys.get(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
-            // Create a new root node, because the current one is full
+            // Create a new root node, because the current will become full
             let current_root_size = self.keys.serialized_size(&root_node)?;
             let new_root_id = self
                 .keys
@@ -400,12 +405,13 @@ where
             .keys
             .allocate_block(page_aligned_capacity(existing_node_size.try_into()?))?;
 
-        let new_node_keys = existing_node.keys.split_off(self.order + 1);
+        let new_node_keys = existing_node.keys.split_off(self.order);
         let new_node_children = if existing_node.is_leaf() {
             vec![]
         } else {
             existing_node.child_nodes.split_off(self.order)
         };
+
         let new_node = NodeBlock {
             child_nodes: new_node_children,
             keys: new_node_keys,
@@ -492,23 +498,26 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
+    use std::{cmp::Ordering, fmt::Debug};
 
     use crate::BtreeIndex;
 
     use super::*;
 
-    fn check_order<K, V, R>(t: &BtreeIndex<K, V>, range : R)
+    fn check_order<K, V, R>(t: &BtreeIndex<K, V>, range: R)
     where
-        K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord,
+        K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
         V: Serialize + DeserializeOwned + Clone,
-        R: RangeBounds<K>
+        R: RangeBounds<K>,
     {
         let mut previous: Option<K> = None;
         for e in t.range(range).unwrap() {
             let (k, _v) = e.unwrap();
 
             if let Some(previous) = previous {
+                if &previous >= &k {
+                    dbg!(&previous, &k);
+                }
                 assert_eq!(Ordering::Less, previous.cmp(&k));
             }
 
@@ -612,6 +621,51 @@ mod tests {
         check_order(&t, 40..);
         check_order(&t, ..1024);
         check_order(&t, ..=1024);
+    }
+
+    #[test]
+    fn minimal_order() {
+        let nr_entries = 2000u64;
+
+        // Too small orders should create an error
+        assert_eq!(
+            true,
+            BtreeIndex::<u64, u64>::with_capacity(BtreeConfig::default().with_order(0), nr_entries as usize)
+                .is_err()
+        );
+        assert_eq!(
+            true,
+            BtreeIndex::<u64, u64>::with_capacity(BtreeConfig::default().with_order(1), nr_entries as usize)
+                .is_err()
+        );
+
+        // Test with the minimal order 2
+        let config = BtreeConfig::default()
+            .with_max_key_size(8)
+            .with_max_value_size(8)
+            .with_order(2);
+
+        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, nr_entries as usize).unwrap();
+
+        for i in 0..nr_entries {
+            t.insert(i, i).unwrap();
+        }
+
+        // Get sub-range
+        let result: Result<Vec<_>> = t.range(40..1024).unwrap().collect();
+        let result = result.unwrap();
+        assert_eq!(984, result.len());
+        assert_eq!((40, 40), result[0]);
+        assert_eq!((1023, 1023), result[983]);
+        check_order(&t, 40..1024);
+
+        // Get complete range
+        let result: Result<Vec<_>> = t.range(..).unwrap().collect();
+        let result = result.unwrap();
+        assert_eq!(2000, result.len());
+        assert_eq!((0, 0), result[0]);
+        assert_eq!((1999, 1999), result[1999]);
+        check_order(&t, ..);
     }
 
     #[test]
