@@ -498,6 +498,24 @@ mod tests {
 
     use super::*;
 
+    fn check_order<K, V, R>(t: &BtreeIndex<K, V>, range : R)
+    where
+        K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord,
+        V: Serialize + DeserializeOwned + Clone,
+        R: RangeBounds<K>
+    {
+        let mut previous: Option<K> = None;
+        for e in t.range(range).unwrap() {
+            let (k, _v) = e.unwrap();
+
+            if let Some(previous) = previous {
+                assert_eq!(Ordering::Less, previous.cmp(&k));
+            }
+
+            previous = Some(k);
+        }
+    }
+
     #[test]
     fn insert_get_static_size() {
         let nr_entries = 2000;
@@ -549,6 +567,7 @@ mod tests {
         assert_eq!(984, result.len());
         assert_eq!((40, 40), result[0]);
         assert_eq!((1023, 1023), result[983]);
+        check_order(&t, 40..1024);
 
         // Get complete range
         let result: Result<Vec<_>> = t.range(..).unwrap().collect();
@@ -556,6 +575,7 @@ mod tests {
         assert_eq!(2000, result.len());
         assert_eq!((0, 0), result[0]);
         assert_eq!((1999, 1999), result[1999]);
+        check_order(&t, ..);
     }
 
     #[test]
@@ -577,6 +597,7 @@ mod tests {
         let result = result.unwrap();
         assert_eq!(116, result.len());
         assert_eq!((40, 40), result[0]);
+        check_order(&t, 40..1200);
 
         // Get complete range
         let result: Result<Vec<_>> = t.range(..).unwrap().collect();
@@ -584,6 +605,13 @@ mod tests {
         assert_eq!(200, result.len());
         assert_eq!((0, 0), result[0]);
         assert_eq!((1990, 1990), result[199]);
+        check_order(&t, ..);
+
+        // Check different variants of range queries
+        check_order(&t, 40..=1200);
+        check_order(&t, 40..);
+        check_order(&t, ..1024);
+        check_order(&t, ..=1024);
     }
 
     #[test]
@@ -601,16 +629,6 @@ mod tests {
             t.insert(vec![0, a], true).unwrap();
         }
         assert_eq!(512, t.len());
-
-        let mut previous: Option<Vec<u8>> = None;
-        for e in t.range(..).unwrap() {
-            let (k, _v) = e.unwrap();
-
-            if let Some(previous) = previous {
-                assert_eq!(Ordering::Less, previous.cmp(&k));
-            }
-
-            previous = Some(k);
-        }
+        check_order(&t, ..);
     }
 }
