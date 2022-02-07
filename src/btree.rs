@@ -276,6 +276,15 @@ where
         }
     }
 
+    pub fn contains_key(&self, key: &K) -> Result<bool> {
+        let root_node = self.keys.get(self.root_id)?;
+        if let Some(_) = self.search(root_node, key)? {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub fn insert(&mut self, key: K, value: V) -> Result<()> {
         let mut root_node = self.keys.get(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
@@ -549,11 +558,18 @@ mod tests {
         assert_eq!(false, t.is_empty());
         assert_eq!(nr_entries as usize, t.len());
 
+        assert_eq!(true, t.contains_key(&0).unwrap());
         assert_eq!(Some(42), t.get(&0).unwrap());
         for i in 1..nr_entries {
+            assert_eq!(true, t.contains_key(&i).unwrap());
+
             let v = t.get(&i).unwrap();
             assert_eq!(Some(i), v);
         }
+        assert_eq!(false, t.contains_key(&nr_entries).unwrap());
+        assert_eq!(None, t.get(&nr_entries).unwrap());
+        assert_eq!(false, t.contains_key(&5000).unwrap());
+        assert_eq!(None, t.get(&5000).unwrap());
     }
 
     #[test]
