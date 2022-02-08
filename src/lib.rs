@@ -17,7 +17,7 @@ mod btree;
 mod error;
 mod file;
 
-pub use btree::{BtreeIndex, BtreeConfig};
+pub use btree::{BtreeConfig, BtreeIndex};
 pub use error::Error;
 
 const KB: usize = 1 << 10;
