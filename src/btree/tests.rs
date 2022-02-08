@@ -201,7 +201,7 @@ fn sorted_iterator() {
 }
 
 #[test]
-fn control_characters() {
+fn fuzz1() {
     let input = vec![
         (
             "\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\t\u{0}\u{0}\u{0}\u{1f}",
@@ -285,6 +285,32 @@ fn control_characters() {
         ("/", ""),
         ("", ""),
         ("", ""),
+    ];
+
+    let mut m = BTreeMap::default();
+    let mut t = BtreeIndex::with_capacity(BtreeConfig::default().with_order(2), 1024).unwrap();
+
+    for (key, value) in input {
+        m.insert(key.to_string(), value.to_string());
+        t.insert(key.to_string(), value.to_string()).unwrap();
+    }
+
+    let m: Vec<_> = m.into_iter().collect();
+    let t: Result<Vec<_>> = t.range(..).unwrap().collect();
+    let t = t.unwrap();
+
+    assert_eq!(m, t);
+}
+
+#[test]
+fn fuzz2() {
+    let input: Vec<(u32, u32)> = vec![
+        (67109157, 2610666395),
+        (77306779, 2610666395),
+        (2604374939, 2610666395),
+        (4294967295, 3587506687),
+        (3587560917, 3583770369),
+        (3587560917, 0),
     ];
 
     let mut m = BTreeMap::default();

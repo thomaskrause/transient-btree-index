@@ -23,3 +23,9 @@ name = "string_insert"
 path = "fuzz_targets/string_insert.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "integer_insert"
+path = "fuzz_targets/integer_insert.rs"
+test = false
+doc = false
