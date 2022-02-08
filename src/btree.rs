@@ -218,8 +218,8 @@ impl BtreeConfig {
     }
 
     /// Sets the order of the tree, which determines how many elements a single node can store.
-    pub fn with_order(mut self, order: usize) -> Self {
-        self.order = order;
+    pub fn with_order(mut self, order: u8) -> Self {
+        self.order = order as usize;
         self
     }
 }
@@ -231,7 +231,6 @@ where
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
-
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
         }
@@ -646,13 +645,19 @@ mod tests {
         // Too small orders should create an error
         assert_eq!(
             true,
-            BtreeIndex::<u64, u64>::with_capacity(BtreeConfig::default().with_order(0), nr_entries as usize)
-                .is_err()
+            BtreeIndex::<u64, u64>::with_capacity(
+                BtreeConfig::default().with_order(0),
+                nr_entries as usize
+            )
+            .is_err()
         );
         assert_eq!(
             true,
-            BtreeIndex::<u64, u64>::with_capacity(BtreeConfig::default().with_order(1), nr_entries as usize)
-                .is_err()
+            BtreeIndex::<u64, u64>::with_capacity(
+                BtreeConfig::default().with_order(1),
+                nr_entries as usize
+            )
+            .is_err()
         );
 
         // Test with the minimal order 2
@@ -661,7 +666,8 @@ mod tests {
             .with_max_value_size(8)
             .with_order(2);
 
-        let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, nr_entries as usize).unwrap();
+        let mut t: BtreeIndex<u64, u64> =
+            BtreeIndex::with_capacity(config, nr_entries as usize).unwrap();
 
         for i in 0..nr_entries {
             t.insert(i, i).unwrap();
