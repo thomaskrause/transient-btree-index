@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, io::Write, mem::size_of};
+use std::{cell::RefCell, collections::HashMap, io::Write, mem::size_of, sync::Arc};
 
 use crate::{error::Result, Error, PAGE_SIZE};
 use bincode::Options;
@@ -13,7 +13,10 @@ pub fn page_aligned_capacity(capacity: usize) -> usize {
         num_full_pages += 1;
     }
     // Make sure there is enough space for the block header
-    (num_full_pages * PAGE_SIZE) - BlockHeader::size()
+    let result = (num_full_pages * PAGE_SIZE) - BlockHeader::size();
+    //dbg!(result);
+    //assert!(result % 4096 == 0);
+    result
 }
 
 /// Representation of a header at the start of each block.
@@ -62,7 +65,7 @@ pub struct TemporaryBlockFile<B> {
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
-    cache: RefCell<LFUCache<usize, B>>,
+    cache: Arc<RefCell<LFUCache<usize, B>>>,
 }
 
 impl<B> TemporaryBlockFile<B>
@@ -84,9 +87,9 @@ where
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
-            cache: RefCell::new(
+            cache: Arc::new(RefCell::new(
                 LFUCache::with_capacity(16).map_err(|e| Error::LFUCache(e.to_string()))?,
-            ),
+            )),
         })
     }
 
