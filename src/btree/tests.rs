@@ -355,14 +355,7 @@ fn fuzz1() {
 
 #[test]
 fn fuzz2() {
-    let input: Vec<(u32, u32)> = vec![
-        (67109157, 2610666395),
-        (77306779, 2610666395),
-        (2604374939, 2610666395),
-        (4294967295, 3587506687),
-        (3587560917, 3583770369),
-        (3587560917, 0),
-    ];
+    let input: Vec<(u32, u32)> = vec![(1, 1), (2, 1), (3, 1), (5, 1), (4, 1), (4, 1)];
 
     let mut m = BTreeMap::default();
     let mut t = BtreeIndex::with_capacity(BtreeConfig::default().with_order(2), 1024).unwrap();
