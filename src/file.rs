@@ -5,9 +5,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{error::Result, Error, PAGE_SIZE};
+use crate::{error::Result, PAGE_SIZE};
 use bincode::Options;
-use lfu::LFUCache;
+use lru::LruCache;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -70,7 +70,7 @@ pub struct TemporaryBlockFile<B> {
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
-    cache: Arc<Mutex<LFUCache<usize, B>>>,
+    cache: Arc<Mutex<LruCache<usize, B>>>,
 }
 
 impl<B> TemporaryBlockFile<B>
@@ -92,9 +92,7 @@ where
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
-            cache: Arc::new(Mutex::new(
-                LFUCache::with_capacity(16).map_err(|e| Error::LFUCache(e.to_string()))?,
-            )),
+            cache: Arc::new(Mutex::new(LruCache::new(16))),
         })
     }
 
@@ -180,7 +178,7 @@ where
             .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
 
         if let Ok(mut cache) = self.cache.lock() {
-            cache.set(block_id, block.clone());
+            cache.put(block_id, block.clone());
         }
 
         Ok(())

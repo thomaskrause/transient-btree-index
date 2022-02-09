@@ -23,6 +23,4 @@ pub enum Error {
     SliceConversion(#[from] TryFromSliceError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
-    #[error("LFUCache error: {0}")]
-    LFUCache(String),
 }

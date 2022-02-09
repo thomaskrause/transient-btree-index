@@ -1,5 +1,6 @@
 use crate::BtreeIndex;
 use debug_tree::TreeBuilder;
+use rayon::prelude::*;
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
 
 use super::*;
@@ -112,6 +113,26 @@ fn insert_get_static_size() {
     assert_eq!(None, t.get(&nr_entries).unwrap());
     assert_eq!(false, t.contains_key(&5000).unwrap());
     assert_eq!(None, t.get(&5000).unwrap());
+}
+
+#[test]
+fn parallel_get() {
+    let nr_entries = 2000;
+
+    let mut t: BtreeIndex<usize, usize> =
+        BtreeIndex::with_capacity(BtreeConfig::default(), 2000).unwrap();
+
+    for i in 0..nr_entries {
+        t.insert(i, i).unwrap();
+    }
+
+    // Get all values in parallel
+    let entries: Result<Vec<Option<usize>>> =
+        (0..nr_entries).into_par_iter().map(|i| t.get(&i)).collect();
+    let entries: Vec<Option<usize>> = entries.unwrap();
+    for i in 0..nr_entries {
+        assert_eq!(Some(i), entries[i]);
+    }
 }
 
 #[test]
