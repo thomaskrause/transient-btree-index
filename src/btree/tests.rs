@@ -24,7 +24,7 @@ where
 {
     let nb = t.keys.get(node)?;
     let mut branch = builder.add_branch(&format!(
-        "{} (node with {} keys and {} children)",
+        "(node {} with {} keys and {} children)",
         nb.id,
         nb.keys.len(),
         nb.child_nodes.len()
