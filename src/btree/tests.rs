@@ -89,13 +89,13 @@ fn insert_get_static_size() {
 
     assert_eq!(true, t.is_empty());
 
-    t.insert(0, 42).unwrap();
+    assert_eq!(None, t.insert(0, 42).unwrap());
 
     assert_eq!(false, t.is_empty());
     assert_eq!(1, t.len());
 
     for i in 1..nr_entries {
-        t.insert(i, i).unwrap();
+        assert_eq!(None, t.insert(i, i).unwrap());
     }
 
     assert_eq!(false, t.is_empty());
@@ -103,6 +103,9 @@ fn insert_get_static_size() {
 
     assert_eq!(true, t.contains_key(&0).unwrap());
     assert_eq!(Some(42), t.get(&0).unwrap());
+    assert_eq!(Some(42), t.insert(0, 100).unwrap());
+    assert_eq!(Some(100), t.insert(0, 42).unwrap());
+    
     for i in 1..nr_entries {
         assert_eq!(true, t.contains_key(&i).unwrap());
 

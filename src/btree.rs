@@ -284,7 +284,7 @@ where
         }
     }
 
-    pub fn insert(&mut self, key: K, value: V) -> Result<()> {
+    pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
         let mut root_node = self.keys.get(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
@@ -299,12 +299,13 @@ where
                 child_nodes: vec![root_node.id],
             };
             self.split_child(&mut new_root, 0)?;
-            self.insert_nonfull(&mut new_root, &key, value)?;
+            let existing = self.insert_nonfull(&mut new_root, &key, value)?;
             self.root_id = new_root_id;
+            Ok(existing)
         } else {
-            self.insert_nonfull(&mut root_node, &key, value)?;
+            let existing = self.insert_nonfull(&mut root_node, &key, value)?;
+            Ok(existing)
         }
-        Ok(())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -356,11 +357,14 @@ where
         }
     }
 
-    fn insert_nonfull(&mut self, node: &mut NodeBlock<K>, key: &K, value: V) -> Result<()> {
+    fn insert_nonfull(&mut self, node: &mut NodeBlock<K>, key: &K, value: V) -> Result<Option<V>> {
         match node.keys.binary_search_by(|e| e.key.cmp(key)) {
             Ok(i) => {
                 // Key already exists, replace the payload
-                self.values.put(node.keys[i].payload_id, &value)?;
+                let payload_id = node.keys[i].payload_id;
+                let previous_payload = self.values.get(payload_id)?;
+                self.values.put(payload_id, &value)?;
+                Ok(Some(previous_payload))
             }
             Err(i) => {
                 if node.is_leaf() {
@@ -379,35 +383,36 @@ where
                     );
                     self.keys.put(node.id, node)?;
                     self.nr_elements += 1;
+                    Ok(None)
                 } else {
                     // Insert key into correct child
                     // Default to left child
-                    let c = self.keys.get(node.child_nodes[i])?;
+                    let mut c = self.keys.get(node.child_nodes[i])?;
                     // If the child is full, we need to split it
-                    let mut c = if c.number_of_keys() == (2 * self.order) - 1 {
-                        let (left, right) = self.split_child(node, i)?;
+                    if c.number_of_keys() == (2 * self.order) - 1 {
+                        let (mut left, mut right) = self.split_child(node, i)?;
                         if key == &node.keys[i].key {
                             // Key already exists and was added to the parent node, replace the payload
-                            self.values.put(node.keys[i].payload_id, &value)?;
-                            None
+                            let payload_id = node.keys[i].payload_id;
+                            let previous_payload = self.values.get(payload_id)?;
+                            self.values.put(payload_id, &value)?;
+                            Ok(Some(previous_payload))
                         } else if key > &node.keys[i].key {
                             // Key is now larger, use the newly created right child
-                            Some(right)
+                            let existing = self.insert_nonfull(&mut right, key, value)?;
+                            Ok(existing)
                         } else {
                             // Use the updated left child (which has a new key vector)
-                            Some(left)
+                            let existing = self.insert_nonfull(&mut left, key, value)?;
+                            Ok(existing)
                         }
                     } else {
-                        Some(c)
-                    };
-
-                    if let Some(c) = &mut c {
-                        self.insert_nonfull(c, key, value)?;
+                        let existing = self.insert_nonfull(&mut c, key, value)?;
+                        Ok(existing)
                     }
                 }
             }
         }
-        Ok(())
     }
 
     fn split_child(
