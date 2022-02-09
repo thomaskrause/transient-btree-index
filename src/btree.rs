@@ -188,6 +188,7 @@ pub struct BtreeConfig {
     order: usize,
     est_max_key_size: usize,
     est_max_value_size: usize,
+    block_cache_size: usize,
 }
 
 impl Default for BtreeConfig {
@@ -196,6 +197,7 @@ impl Default for BtreeConfig {
             order: 128,
             est_max_key_size: 32,
             est_max_value_size: 32,
+            block_cache_size: 16,
         }
     }
 }
@@ -206,20 +208,26 @@ impl BtreeConfig {
     /// Keys can be larger than this, but if this happens too often inside a BTree node
     /// the block might need to be re-allocated, which causes memory fragmentation on the disk
     /// and some main memory overhead for remembering the re-allocated block IDs.
-    pub fn with_max_key_size(mut self, est_max_key_size: usize) -> Self {
+    pub fn max_key_size(mut self, est_max_key_size: usize) -> Self {
         self.est_max_key_size = est_max_key_size;
         self
     }
 
     /// Set the estimated maximum size in bytes for each values.
-    pub fn with_max_value_size(mut self, est_max_value_size: usize) -> Self {
+    pub fn max_value_size(mut self, est_max_value_size: usize) -> Self {
         self.est_max_value_size = est_max_value_size;
         self
     }
 
     /// Sets the order of the tree, which determines how many elements a single node can store.
-    pub fn with_order(mut self, order: u8) -> Self {
+    pub fn order(mut self, order: u8) -> Self {
         self.order = order as usize;
+        self
+    }
+
+    /// Sets the number of blocks/pages hold in an internal cache.
+    pub fn block_cache_size(mut self, block_cache_size: usize) -> Self {
+        self.block_cache_size = block_cache_size;
         self
     }
 }
@@ -241,10 +249,13 @@ where
         let child_nodes_size = (config.order + 1) * std::mem::size_of::<usize>();
         let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
 
-        let mut keys =
-            TemporaryBlockFile::with_capacity(capacity * (block_size + BlockHeader::size()))?;
+        let mut keys = TemporaryBlockFile::with_capacity(
+            capacity * (block_size + BlockHeader::size()),
+            config.block_cache_size,
+        )?;
         let values = TemporaryBlockFile::with_capacity(
             (capacity * config.est_max_value_size) + BlockHeader::size(),
+            config.block_cache_size,
         )?;
 
         // Always add an empty root node

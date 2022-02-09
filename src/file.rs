@@ -79,7 +79,10 @@ where
     /// New blocks can be allocated with [`Self::allocate_block()`].
     /// While the file will automatically grow when block are allocated and the capacity is reached,
     /// you cannot change the capacity of a single block after allocating it.
-    pub fn with_capacity(capacity: usize) -> Result<TemporaryBlockFile<B>> {
+    pub fn with_capacity(
+        capacity: usize,
+        block_cache_size: usize,
+    ) -> Result<TemporaryBlockFile<B>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = MmapMut::map_anon(capacity)?;
@@ -89,7 +92,7 @@ where
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
-            cache: Arc::new(Mutex::new(LruCache::new(16))),
+            cache: Arc::new(Mutex::new(LruCache::new(block_cache_size))),
         })
     }
 
@@ -242,7 +245,7 @@ mod tests {
     #[test]
     fn grow_mmap_from_zero_capacity() {
         // Create file with empty capacity
-        let mut m = TemporaryBlockFile::<u64>::with_capacity(0).unwrap();
+        let mut m = TemporaryBlockFile::<u64>::with_capacity(0, 0).unwrap();
         // The capacity must be at least one
         assert_eq!(1, m.mmap.len());
 
@@ -267,7 +270,7 @@ mod tests {
 
     #[test]
     fn grow_mmap_with_capacity() {
-        let mut m = TemporaryBlockFile::<u64>::with_capacity(4096).unwrap();
+        let mut m = TemporaryBlockFile::<u64>::with_capacity(4096, 0).unwrap();
         assert_eq!(4096, m.mmap.len());
 
         // Don't grow if not necessary
@@ -287,7 +290,7 @@ mod tests {
 
     #[test]
     fn block_insert_get_update() {
-        let mut m = TemporaryBlockFile::<Vec<u64>>::with_capacity(128).unwrap();
+        let mut m = TemporaryBlockFile::<Vec<u64>>::with_capacity(128, 0).unwrap();
         assert_eq!(128, m.mmap.len());
 
         let mut b: Vec<u64> = std::iter::repeat(42).take(10).collect();

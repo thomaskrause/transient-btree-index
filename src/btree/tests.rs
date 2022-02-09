@@ -81,9 +81,7 @@ where
 fn insert_get_static_size() {
     let nr_entries = 2000;
 
-    let config = BtreeConfig::default()
-        .with_max_key_size(8)
-        .with_max_value_size(8);
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
 
     let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
 
@@ -105,7 +103,7 @@ fn insert_get_static_size() {
     assert_eq!(Some(42), t.get(&0).unwrap());
     assert_eq!(Some(42), t.insert(0, 100).unwrap());
     assert_eq!(Some(100), t.insert(0, 42).unwrap());
-    
+
     for i in 1..nr_entries {
         assert_eq!(true, t.contains_key(&i).unwrap());
 
@@ -142,9 +140,7 @@ fn parallel_get() {
 fn range_query_dense() {
     let nr_entries = 2000;
 
-    let config = BtreeConfig::default()
-        .with_max_key_size(8)
-        .with_max_value_size(8);
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
 
     let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
 
@@ -171,9 +167,7 @@ fn range_query_dense() {
 
 #[test]
 fn range_query_sparse() {
-    let config = BtreeConfig::default()
-        .with_max_key_size(8)
-        .with_max_value_size(8);
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
 
     let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 200).unwrap();
 
@@ -212,26 +206,20 @@ fn minimal_order() {
     // Too small orders should create an error
     assert_eq!(
         true,
-        BtreeIndex::<u64, u64>::with_capacity(
-            BtreeConfig::default().with_order(0),
-            nr_entries as usize
-        )
-        .is_err()
+        BtreeIndex::<u64, u64>::with_capacity(BtreeConfig::default().order(0), nr_entries as usize)
+            .is_err()
     );
     assert_eq!(
         true,
-        BtreeIndex::<u64, u64>::with_capacity(
-            BtreeConfig::default().with_order(1),
-            nr_entries as usize
-        )
-        .is_err()
+        BtreeIndex::<u64, u64>::with_capacity(BtreeConfig::default().order(1), nr_entries as usize)
+            .is_err()
     );
 
     // Test with the minimal order 2
     let config = BtreeConfig::default()
-        .with_max_key_size(8)
-        .with_max_value_size(8)
-        .with_order(2);
+        .max_key_size(8)
+        .max_value_size(8)
+        .order(2);
 
     let mut t: BtreeIndex<u64, u64> =
         BtreeIndex::with_capacity(config, nr_entries as usize).unwrap();
@@ -259,9 +247,7 @@ fn minimal_order() {
 
 #[test]
 fn sorted_iterator() {
-    let config = BtreeConfig::default()
-        .with_max_key_size(64)
-        .with_max_value_size(64);
+    let config = BtreeConfig::default().max_key_size(64).max_value_size(64);
 
     let mut t: BtreeIndex<Vec<u8>, bool> = BtreeIndex::with_capacity(config, 128).unwrap();
 
@@ -280,7 +266,7 @@ fn insert_twice_at_split_point() {
     let input: Vec<(u32, u32)> = vec![(1, 1), (2, 1), (3, 1), (5, 1), (4, 1), (4, 1)];
 
     let mut m = BTreeMap::default();
-    let mut t = BtreeIndex::with_capacity(BtreeConfig::default().with_order(2), 1024).unwrap();
+    let mut t = BtreeIndex::with_capacity(BtreeConfig::default().order(2), 1024).unwrap();
 
     for (key, value) in input {
         m.insert(key.to_string(), value.to_string());

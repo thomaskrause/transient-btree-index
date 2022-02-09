@@ -11,9 +11,7 @@ fn benchmark(c: &mut Criterion) {
         let n_entries = 10_000;
         let name_faker = fake::faker::name::en::Name();
 
-        let config = BtreeConfig::default()
-            .with_max_key_size(16)
-            .with_max_value_size(64);
+        let config = BtreeConfig::default().max_key_size(16).max_value_size(64);
 
         let mut btree: BtreeIndex<String, String> =
             BtreeIndex::with_capacity(config, n_entries).unwrap();
@@ -39,9 +37,7 @@ fn benchmark(c: &mut Criterion) {
         let n_entries = 10_000;
         let name_faker = fake::faker::name::en::Name();
 
-        let config = BtreeConfig::default()
-            .with_max_key_size(16)
-            .with_max_value_size(64);
+        let config = BtreeConfig::default().max_key_size(16).max_value_size(64);
 
         let mut btree: BtreeIndex<String, String> =
             BtreeIndex::with_capacity(config, n_entries).unwrap();
