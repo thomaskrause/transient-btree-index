@@ -1,4 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, io::Write, mem::size_of, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::Write,
+    mem::size_of,
+    sync::{Arc, Mutex},
+};
 
 use crate::{error::Result, Error, PAGE_SIZE};
 use bincode::Options;
@@ -65,7 +70,7 @@ pub struct TemporaryBlockFile<B> {
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
-    cache: Arc<RefCell<LFUCache<usize, B>>>,
+    cache: Arc<Mutex<LFUCache<usize, B>>>,
 }
 
 impl<B> TemporaryBlockFile<B>
@@ -87,7 +92,7 @@ where
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
-            cache: Arc::new(RefCell::new(
+            cache: Arc::new(Mutex::new(
                 LFUCache::with_capacity(16).map_err(|e| Error::LFUCache(e.to_string()))?,
             )),
         })
@@ -97,7 +102,7 @@ where
     pub fn get(&self, block_id: usize) -> Result<B> {
         let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
 
-        if let Ok(mut cache) = self.cache.try_borrow_mut() {
+        if let Ok(mut cache) = self.cache.try_lock() {
             if let Some(b) = cache.get_mut(&block_id) {
                 return Ok(b.clone());
             }
@@ -174,7 +179,7 @@ where
         self.serializer
             .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
 
-        if let Ok(mut cache) = self.cache.try_borrow_mut() {
+        if let Ok(mut cache) = self.cache.lock() {
             cache.set(block_id, block.clone());
         }
 
