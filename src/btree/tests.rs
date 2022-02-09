@@ -1,8 +1,59 @@
+use crate::BtreeIndex;
+use debug_tree::TreeBuilder;
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
 
-use crate::BtreeIndex;
-
 use super::*;
+
+fn print_tree<K, V>(t: &BtreeIndex<K, V>) -> Result<()>
+where
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
+    V: Serialize + DeserializeOwned + Clone,
+{
+    let mut b = TreeBuilder::new();
+
+    print_tree_node(&mut b, t, t.root_id)?;
+
+    b.print();
+    Ok(())
+}
+
+fn print_tree_node<K, V>(builder: &mut TreeBuilder, t: &BtreeIndex<K, V>, node: usize) -> Result<()>
+where
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
+    V: Serialize + DeserializeOwned + Clone,
+{
+    let nb = t.keys.get(node)?;
+    let mut branch = builder.add_branch(&format!(
+        "{} (node with {} keys and {} children)",
+        nb.id,
+        nb.keys.len(),
+        nb.child_nodes.len()
+    ));
+    if nb.is_leaf() {
+        // Only print the keys
+        for k in nb.keys.iter() {
+            builder.add_leaf(&format!("{:?} (key)", k.key));
+        }
+    } else {
+        // Print both the keys and the child nodes
+        let max_index = nb.child_nodes.len().max(nb.keys.len());
+        for i in 0..max_index {
+            if i < nb.child_nodes.len() {
+                print_tree_node(builder, t, nb.child_nodes[i])?;
+            } else {
+                builder.add_leaf(&format!("ERROR: no child at index {}", i));
+            }
+            if i < nb.keys.len() {
+                builder.add_leaf(&format!("{:?} (key)", nb.keys[i].key));
+            } else if i < nb.child_nodes.len() - 1 {
+                builder.add_leaf(&format!("ERROR: no key at index {}", i));
+            }
+        }
+    }
+    branch.release();
+
+    Ok(())
+}
 
 fn check_order<K, V, R>(t: &BtreeIndex<K, V>, range: R)
 where
@@ -320,6 +371,8 @@ fn fuzz2() {
         m.insert(key.to_string(), value.to_string());
         t.insert(key.to_string(), value.to_string()).unwrap();
     }
+
+    print_tree(&t).unwrap();
 
     let m: Vec<_> = m.into_iter().collect();
     let t: Result<Vec<_>> = t.range(..).unwrap().collect();
