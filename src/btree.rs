@@ -382,19 +382,28 @@ where
                 } else {
                     // Insert key into correct child
                     // Default to left child
-                    let mut c = self.keys.get(node.child_nodes[i])?;
+                    let c = self.keys.get(node.child_nodes[i])?;
                     // If the child is full, we need to split it
-                    if c.number_of_keys() == (2 * self.order) - 1 {
+                    let mut c = if c.number_of_keys() == (2 * self.order) - 1 {
                         let (left, right) = self.split_child(node, i)?;
-                        if key > &node.keys[i].key {
+                        if key == &node.keys[i].key {
+                            // Key already exists and was added to the parent node, replace the payload
+                            self.values.put(node.keys[i].payload_id, &value)?;
+                            None
+                        } else if key > &node.keys[i].key {
                             // Key is now larger, use the newly created right child
-                            c = right;
+                            Some(right)
                         } else {
                             // Use the updated left child (which has a new key vector)
-                            c = left;
+                            Some(left)
                         }
+                    } else {
+                        Some(c)
+                    };
+
+                    if let Some(c) = &mut c {
+                        self.insert_nonfull(c, key, value)?;
                     }
-                    self.insert_nonfull(&mut c, key, value)?;
                 }
             }
         }

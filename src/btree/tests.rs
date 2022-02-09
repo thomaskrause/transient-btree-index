@@ -31,8 +31,8 @@ where
     ));
     if nb.is_leaf() {
         // Only print the keys
-        for k in nb.keys.iter() {
-            builder.add_leaf(&format!("{:?} (key)", k.key));
+        for i in 0..nb.keys.len() {
+            builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i].key, i));
         }
     } else {
         // Print both the keys and the child nodes
@@ -44,7 +44,7 @@ where
                 builder.add_leaf(&format!("ERROR: no child at index {}", i));
             }
             if i < nb.keys.len() {
-                builder.add_leaf(&format!("{:?} (key)", nb.keys[i].key));
+                builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i].key, i));
             } else if i < nb.child_nodes.len() - 1 {
                 builder.add_leaf(&format!("ERROR: no key at index {}", i));
             }
@@ -252,109 +252,7 @@ fn sorted_iterator() {
 }
 
 #[test]
-fn fuzz1() {
-    let input = vec![
-        (
-            "\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\t\u{0}\u{0}\u{0}\u{1f}",
-            "",
-        ),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("<", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("", ""),
-        ("/", ""),
-        ("", ""),
-        ("\u{12}\u{12}", "\u{12}\u{12}\u{12}\u{12}\u{12}\u{12}"),
-        ("", ""),
-        ("/", ""),
-        ("", ""),
-        ("", ""),
-    ];
-
-    let mut m = BTreeMap::default();
-    let mut t = BtreeIndex::with_capacity(BtreeConfig::default().with_order(2), 1024).unwrap();
-
-    for (key, value) in input {
-        m.insert(key.to_string(), value.to_string());
-        t.insert(key.to_string(), value.to_string()).unwrap();
-    }
-
-    let m: Vec<_> = m.into_iter().collect();
-    let t: Result<Vec<_>> = t.range(..).unwrap().collect();
-    let t = t.unwrap();
-
-    assert_eq!(m, t);
-}
-
-#[test]
-fn fuzz2() {
+fn insert_twice_at_split_point() {
     let input: Vec<(u32, u32)> = vec![(1, 1), (2, 1), (3, 1), (5, 1), (4, 1), (4, 1)];
 
     let mut m = BTreeMap::default();
@@ -363,9 +261,10 @@ fn fuzz2() {
     for (key, value) in input {
         m.insert(key.to_string(), value.to_string());
         t.insert(key.to_string(), value.to_string()).unwrap();
-    }
 
-    print_tree(&t).unwrap();
+        print_tree(&t).unwrap();
+        println!("-------------");
+    }
 
     let m: Vec<_> = m.into_iter().collect();
     let t: Result<Vec<_>> = t.range(..).unwrap().collect();
