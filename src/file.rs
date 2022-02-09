@@ -18,10 +18,7 @@ pub fn page_aligned_capacity(capacity: usize) -> usize {
         num_full_pages += 1;
     }
     // Make sure there is enough space for the block header
-    let result = (num_full_pages * PAGE_SIZE) - BlockHeader::size();
-    //dbg!(result);
-    //assert!(result % 4096 == 0);
-    result
+    (num_full_pages * PAGE_SIZE) - BlockHeader::size()
 }
 
 /// Representation of a header at the start of each block.
