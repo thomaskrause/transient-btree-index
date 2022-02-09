@@ -1,7 +1,8 @@
-use std::{collections::HashMap, io::Write, marker::PhantomData, mem::size_of};
+use std::{cell::RefCell, collections::HashMap, io::Write, mem::size_of};
 
-use crate::{error::Result, PAGE_SIZE};
+use crate::{error::Result, Error, PAGE_SIZE};
 use bincode::Options;
+use lfu::LFUCache;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -61,12 +62,12 @@ pub struct TemporaryBlockFile<B> {
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
-    phantom: PhantomData<B>,
+    cache: RefCell<LFUCache<usize, B>>,
 }
 
 impl<B> TemporaryBlockFile<B>
 where
-    B: Serialize + DeserializeOwned,
+    B: Serialize + DeserializeOwned + Clone,
 {
     /// Create a new file with the given capacity.
     ///
@@ -83,13 +84,21 @@ where
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
-            phantom: PhantomData,
+            cache: RefCell::new(
+                LFUCache::with_capacity(16).map_err(|e| Error::LFUCache(e.to_string()))?,
+            ),
         })
     }
 
     /// Get a block with the given id.
     pub fn get(&self, block_id: usize) -> Result<B> {
         let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
+        if let Ok(mut cache) = self.cache.try_borrow_mut() {
+            if let Some(b) = cache.get_mut(&block_id) {
+                return Ok(b.clone());
+            }
+        }
 
         // Read the size of the stored block
         let header = self.block_header(block_id)?;
@@ -161,6 +170,10 @@ where
         let block_end = block_start + block_size;
         self.serializer
             .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
+
+        if let Ok(mut cache) = self.cache.try_borrow_mut() {
+            cache.set(block_id, block.clone());
+        }
 
         Ok(())
     }
