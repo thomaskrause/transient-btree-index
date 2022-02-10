@@ -1,4 +1,4 @@
-![docs.rs](https://img.shields.io/docsrs/transient-btree-index) ![Crates.io](https://img.shields.io/crates/v/transient-btree-index)
+[![docs.rs](https://img.shields.io/docsrs/transient-btree-index)](https://docs.rs/transient-btree-index/) [![Crates.io](https://img.shields.io/crates/v/transient-btree-index)](https://crates.io/crates/transient-btree-index)
 
 # Transient Index using B-Trees
 
