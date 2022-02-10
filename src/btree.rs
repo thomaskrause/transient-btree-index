@@ -248,13 +248,14 @@ where
         let keys_vec_size = config.order * config.est_max_key_size;
         let child_nodes_size = (config.order + 1) * std::mem::size_of::<usize>();
         let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
+        let capacity_in_blocks = capacity / config.order;
 
         let mut keys = TemporaryBlockFile::with_capacity(
-            capacity * (block_size + BlockHeader::size()),
+            capacity_in_blocks * (block_size + BlockHeader::size()),
             config.block_cache_size,
         )?;
         let values = TemporaryBlockFile::with_capacity(
-            (capacity * config.est_max_value_size) + BlockHeader::size(),
+            (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
 
