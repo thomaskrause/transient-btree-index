@@ -412,25 +412,21 @@ where
                     // If the child is full, we need to split it
                     if c.number_of_keys() == (2 * self.order) - 1 {
                         let (mut left, mut right) = self.split_child(node, i)?;
-                        match key.cmp(&node.keys[i].key) {
-                            std::cmp::Ordering::Equal => {
-                                // Key already exists and was added to the parent node, replace the payload
-                                let payload_id = node.keys[i].payload_id;
-                                let previous_payload = self.values.get_owned(payload_id)?;
-                                self.values.put(payload_id, &value)?;
-                                self.last_inserted_node_id = node.id;
-                                Ok(Some(previous_payload))
-                            }
-                            std::cmp::Ordering::Greater => {
-                                // Key is now larger, use the newly created right child
-                                let existing = self.insert_nonfull(&mut right, key, value)?;
-                                Ok(existing)
-                            }
-                            std::cmp::Ordering::Less => {
-                                // Use the updated left child (which has a new key vector)
-                                let existing = self.insert_nonfull(&mut left, key, value)?;
-                                Ok(existing)
-                            }
+                        if key == &node.keys[i].key {
+                            // Key already exists and was added to the parent node, replace the payload
+                            let payload_id = node.keys[i].payload_id;
+                            let previous_payload = self.values.get_owned(payload_id)?;
+                            self.values.put(payload_id, &value)?;
+                            self.last_inserted_node_id = node.id;
+                            Ok(Some(previous_payload))
+                        } else if key > &node.keys[i].key {
+                            // Key is now larger, use the newly created right child
+                            let existing = self.insert_nonfull(&mut right, key, value)?;
+                            Ok(existing)
+                        } else {
+                            // Use the updated left child (which has a new key vector)
+                            let existing = self.insert_nonfull(&mut left, key, value)?;
+                            Ok(existing)
                         }
                     } else {
                         let existing = self.insert_nonfull(&mut c, key, value)?;
