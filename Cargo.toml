@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Thomas Krause <thomaskrause@posteo.de>"]
 license = "Apache-2.0"
-
+description = "This crate allows you to create a BTree index backed by temporary files"
+repository = "https://github.com/thomaskrause/transient-btree-index"
 
 [dependencies]
 memmap2 = "0.5"
