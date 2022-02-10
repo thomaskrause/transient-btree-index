@@ -260,6 +260,7 @@ fn sorted_iterator() {
         t.insert(vec![0, a], true).unwrap();
     }
     assert_eq!(512, t.len());
+    print_tree(&t).unwrap();
     check_order(&t, ..);
 }
 
@@ -318,7 +319,6 @@ fn get_after_relocation() {
     btree
         .insert(search_key.clone(), search_value.clone())
         .unwrap();
-
 
     let found = btree.get(&search_key).unwrap().unwrap();
     assert_eq!(&search_value, &found);

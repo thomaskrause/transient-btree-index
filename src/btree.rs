@@ -34,10 +34,7 @@ where
             let key_pos = node.keys.binary_search_by(|e| e.key.cmp(key));
             match &key_pos {
                 // Key was found, start at this position
-                Ok(i) => StackEntry::Key {
-                    node: node.clone(),
-                    idx: *i,
-                },
+                Ok(i) => StackEntry::Key { node, idx: *i },
                 // Key not found, but key would be inserted at i, so the next child or key could contain the key
                 Err(i) => {
                     if node.is_leaf() {
@@ -46,13 +43,10 @@ where
                         // If the search range is after the largest key (e.g. 10 for the previous example),
                         // the binary search will return the length of the vector as insertion position,
                         // effectivly generating an invalid candidate which needs to be filterred later
-                        StackEntry::Key {
-                            node: node.clone(),
-                            idx: *i,
-                        }
+                        StackEntry::Key { node, idx: *i }
                     } else {
                         StackEntry::Child {
-                            parent: node.clone(),
+                            parent: node,
                             idx: *i,
                         }
                     }
@@ -65,13 +59,10 @@ where
                 // Key was found, start at child or key after the key
                 Ok(i) => {
                     if node.is_leaf() {
-                        StackEntry::Key {
-                            node: node.clone(),
-                            idx: *i + 1,
-                        }
+                        StackEntry::Key { node, idx: *i + 1 }
                     } else {
                         StackEntry::Child {
-                            parent: node.clone(),
+                            parent: node,
                             idx: *i + 1,
                         }
                     }
@@ -80,7 +71,7 @@ where
                 // E.g. when searching for 5 in [c0, k0=2, c1, k1=4, c2, k3=8, c3 ], i would be 3 and we need to
                 // start our search a c2 which is before this key.
                 Err(i) => StackEntry::Child {
-                    parent: node.clone(),
+                    parent: node,
                     idx: *i - 1,
                 },
             }
@@ -88,14 +79,11 @@ where
         Bound::Unbounded => {
             if node.is_leaf() {
                 // Return the first key
-                StackEntry::Key {
-                    node: node.clone(),
-                    idx: 0,
-                }
+                StackEntry::Key { node, idx: 0 }
             } else {
                 // Return the first child
                 StackEntry::Child {
-                    parent: node.clone(),
+                    parent: node,
                     idx: 0,
                 }
             }
@@ -181,6 +169,7 @@ where
     keys: TemporaryBlockFile<NodeBlock<K>>,
     values: TemporaryBlockFile<V>,
     root_id: usize,
+    last_inserted_node_id: usize,
     order: usize,
     nr_elements: usize,
 }
@@ -275,6 +264,7 @@ where
             values,
             order: config.order,
             nr_elements: 0,
+            last_inserted_node_id: root_id,
         })
     }
 
@@ -290,14 +280,26 @@ where
 
     pub fn contains_key(&self, key: &K) -> Result<bool> {
         let root_node = self.keys.get(self.root_id)?;
-        if let Some(_) = self.search(root_node, key)? {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        Ok(self.search(root_node, key)?.is_some())
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
+        // On sorted insert, the last inserted block might the one we need to insert the key into
+        let last_inserted_node = self.keys.get(self.last_inserted_node_id)?;
+        if let (Some(start), Some(end)) = (
+            last_inserted_node.keys.first(),
+            last_inserted_node.keys.last(),
+        ) {
+            if key >= start.key
+                && key <= end.key
+                && last_inserted_node.number_of_keys() < (2 * self.order) - 1
+            {
+                let mut copied_node = last_inserted_node.as_ref().clone();
+                let expected = self.insert_nonfull(&mut copied_node, &key, value)?;
+                return Ok(expected);
+            }
+        };
+
         let mut root_node = self.keys.get_owned(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
@@ -381,6 +383,7 @@ where
                 let payload_id = node.keys[i].payload_id;
                 let previous_payload = self.values.get_owned(payload_id)?;
                 self.values.put(payload_id, &value)?;
+                self.last_inserted_node_id = node.id;
                 Ok(Some(previous_payload))
             }
             Err(i) => {
@@ -400,6 +403,7 @@ where
                     );
                     self.keys.put(node.id, node)?;
                     self.nr_elements += 1;
+                    self.last_inserted_node_id = node.id;
                     Ok(None)
                 } else {
                     // Insert key into correct child
@@ -413,6 +417,7 @@ where
                             let payload_id = node.keys[i].payload_id;
                             let previous_payload = self.values.get_owned(payload_id)?;
                             self.values.put(payload_id, &value)?;
+                            self.last_inserted_node_id = node.id;
                             Ok(Some(previous_payload))
                         } else if key > &node.keys[i].key {
                             // Key is now larger, use the newly created right child
@@ -461,7 +466,7 @@ where
         let split_key = existing_node
             .keys
             .pop()
-            .ok_or_else(|| Error::EmptyChildNodeInSplit)?;
+            .ok_or(Error::EmptyChildNodeInSplit)?;
         parent.keys.insert(i, split_key);
         parent.child_nodes.insert(i + 1, new_node_id);
 
@@ -531,7 +536,7 @@ where
             }
         }
 
-        return None;
+        None
     }
 }
 
