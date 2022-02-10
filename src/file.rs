@@ -7,8 +7,8 @@ use std::{
 
 use crate::{error::Result, PAGE_SIZE};
 use bincode::Options;
-use lru::LruCache;
-use memmap2::MmapMut;
+use linked_hash_map::LinkedHashMap;
+use memmap2::{MmapMut, MmapOptions};
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Return a value that is at least the given capacity, but ensures the block ends at a memory page
@@ -67,7 +67,8 @@ pub struct TemporaryBlockFile<B> {
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
-    cache: Arc<Mutex<LruCache<usize, Arc<B>>>>,
+    cache: Arc<Mutex<LinkedHashMap<usize, Arc<B>>>>,
+    block_cache_size: usize,
 }
 
 impl<B> TemporaryBlockFile<B>
@@ -85,14 +86,15 @@ where
     ) -> Result<TemporaryBlockFile<B>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
-        let mmap = MmapMut::map_anon(capacity)?;
+        let mmap = MmapOptions::new().stack().len(capacity).map_anon()?;
 
         Ok(TemporaryBlockFile {
             mmap,
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
             serializer: bincode::DefaultOptions::new(),
-            cache: Arc::new(Mutex::new(LruCache::new(block_cache_size))),
+            cache: Arc::new(Mutex::new(LinkedHashMap::with_capacity(block_cache_size))),
+            block_cache_size,
         })
     }
 
@@ -109,28 +111,38 @@ where
         Ok(result)
     }
 
+    fn get_cached_entry(&self, block_id: usize) -> Option<Arc<B>> {
+        if let Ok(mut cache) = self.cache.try_lock() {
+            if let Some(b) = cache.get(&block_id).cloned() {
+                // Mark the block as recently used by re-inserting it
+                cache.insert(block_id, b.clone());
+                return Some(b);
+            }
+        }
+        None
+    }
+
     /// Get a block with the given id give ownership of the result to the caller.
     pub fn get_owned(&self, block_id: usize) -> Result<B> {
         let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
 
-        if let Ok(mut cache) = self.cache.try_lock() {
-            if let Some(b) = cache.get_mut(&block_id) {
-                return Ok(b.as_ref().clone());
-            }
+        if let Some(b) = self.get_cached_entry(block_id) {
+            Ok(b.as_ref().clone())
+        } else {
+            let result = self.read_block(block_id)?;
+            Ok(result)
         }
-        let result = self.read_block(block_id)?;
-        Ok(result)
     }
 
     pub fn get(&self, block_id: usize) -> Result<Arc<B>> {
-        // Try to get the object from the cache first
-        if let Ok(mut cache) = self.cache.try_lock() {
-            if let Some(b) = cache.get_mut(&block_id) {
-                return Ok(b.clone());
-            }
+        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
+        if let Some(b) = self.get_cached_entry(block_id) {
+            Ok(b)
+        } else {
+            let result = self.read_block(block_id)?;
+            Ok(Arc::new(result))
         }
-        let result = self.read_block(block_id)?;
-        Ok(Arc::new(result))
     }
 
     /// Determines wether a given block would still fit in the originally allocated space.
@@ -193,7 +205,11 @@ where
             .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
 
         if let Ok(mut cache) = self.cache.lock() {
-            cache.put(block_id, Arc::new(block.clone()));
+            cache.insert(block_id, Arc::new(block.clone()));
+            // Remove the oldest entry when capacity is reached
+            if cache.len() > self.block_cache_size {
+                cache.pop_front();
+            }
         }
 
         Ok(())
@@ -241,7 +257,7 @@ where
         // Create a new anonymous memory mapped the content is copied to.
         // Allocate at least twice the old file size so we don't need to grow too often
         let new_size = requested_size.max(self.mmap.len() * 2);
-        let mut new_mmap = MmapMut::map_anon(new_size)?;
+        let mut new_mmap = MmapOptions::new().stack().len(new_size).map_anon()?;
 
         // Copy all content from the old file into the new file
         new_mmap[0..self.mmap.len()].copy_from_slice(&self.mmap);

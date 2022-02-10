@@ -4,11 +4,11 @@ use transient_btree_index::{BtreeConfig, BtreeIndex};
 
 fn benchmark(c: &mut Criterion) {
     const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let id_faker = StringFaker::with(Vec::from(ASCII), 8..16);
 
     c.bench_function("insert 1 string", |b| {
         // Create an index with 10.000 random entries
         let n_entries = 10_000;
+        let id_faker = StringFaker::with(Vec::from(ASCII), 8..16);
         let name_faker = fake::faker::name::en::Name();
 
         let config = BtreeConfig::default().max_key_size(16).max_value_size(64);
@@ -35,6 +35,7 @@ fn benchmark(c: &mut Criterion) {
     c.bench_function("search existing string", |b| {
         // Create an index with 10.000 random entries
         let n_entries = 10_000;
+        let id_faker = StringFaker::with(Vec::from(ASCII), 8..16);
         let name_faker = fake::faker::name::en::Name();
 
         let config = BtreeConfig::default().max_key_size(16).max_value_size(64);

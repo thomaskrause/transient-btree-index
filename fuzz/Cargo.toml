@@ -10,6 +10,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+fake = "2.4"
+rand = {version="0.8", features=["small_rng"]}
 
 [dependencies.transient-btree-index]
 path = ".."
@@ -27,5 +29,11 @@ doc = false
 [[bin]]
 name = "integer_insert"
 path = "fuzz_targets/integer_insert.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "string_search"
+path = "fuzz_targets/string_search.rs"
 test = false
 doc = false

@@ -6,8 +6,7 @@ use transient_btree_index::{BtreeConfig, BtreeIndex, Error};
 fuzz_target!(|data: (Vec<(String, String)>, u8)| {
     let order = data.1.max(2);
     let mut m = BTreeMap::default();
-    let mut fixture =
-        BtreeIndex::with_capacity(BtreeConfig::default().order(order), 1024).unwrap();
+    let mut fixture = BtreeIndex::with_capacity(BtreeConfig::default().order(order), 1024).unwrap();
 
     for (key, value) in data.0 {
         m.insert(key.clone(), value.clone());
