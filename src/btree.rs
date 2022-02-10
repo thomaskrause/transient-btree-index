@@ -2,6 +2,7 @@ use std::{
     marker::PhantomData,
     ops::{Bound, RangeBounds},
     rc::Rc,
+    sync::Arc,
 };
 
 use crate::{
@@ -280,7 +281,7 @@ where
     pub fn get(&self, key: &K) -> Result<Option<V>> {
         let root_node = self.keys.get(self.root_id)?;
         if let Some((node, i)) = self.search(root_node, key)? {
-            let v = self.values.get(node.keys[i].payload_id)?;
+            let v = self.values.get_owned(node.keys[i].payload_id)?;
             Ok(Some(v))
         } else {
             Ok(None)
@@ -297,7 +298,7 @@ where
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
-        let mut root_node = self.keys.get(self.root_id)?;
+        let mut root_node = self.keys.get_owned(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
             let current_root_size = self.keys.serialized_size(&root_node)?;
@@ -333,7 +334,7 @@ where
         R: RangeBounds<K>,
     {
         // Start to search at the root node
-        let root = self.keys.get(self.root_id)?;
+        let root = self.keys.get_owned(self.root_id)?;
         let start = range.start_bound().cloned();
         let end = range.end_bound().cloned();
         let mut stack = root.find_range(range);
@@ -352,7 +353,11 @@ where
         Ok(result)
     }
 
-    fn search(&self, node: NodeBlock<K>, key: &K) -> Result<Option<(NodeBlock<K>, usize)>> {
+    fn search(
+        &self,
+        node: Arc<NodeBlock<K>>,
+        key: &K,
+    ) -> Result<Option<(Arc<NodeBlock<K>>, usize)>> {
         let mut i = 0;
         while i < node.number_of_keys() && key > &node.keys[i].key {
             i += 1;
@@ -374,7 +379,7 @@ where
             Ok(i) => {
                 // Key already exists, replace the payload
                 let payload_id = node.keys[i].payload_id;
-                let previous_payload = self.values.get(payload_id)?;
+                let previous_payload = self.values.get_owned(payload_id)?;
                 self.values.put(payload_id, &value)?;
                 Ok(Some(previous_payload))
             }
@@ -399,14 +404,14 @@ where
                 } else {
                     // Insert key into correct child
                     // Default to left child
-                    let mut c = self.keys.get(node.child_nodes[i])?;
+                    let mut c = self.keys.get_owned(node.child_nodes[i])?;
                     // If the child is full, we need to split it
                     if c.number_of_keys() == (2 * self.order) - 1 {
                         let (mut left, mut right) = self.split_child(node, i)?;
                         if key == &node.keys[i].key {
                             // Key already exists and was added to the parent node, replace the payload
                             let payload_id = node.keys[i].payload_id;
-                            let previous_payload = self.values.get(payload_id)?;
+                            let previous_payload = self.values.get_owned(payload_id)?;
                             self.values.put(payload_id, &value)?;
                             Ok(Some(previous_payload))
                         } else if key > &node.keys[i].key {
@@ -433,7 +438,7 @@ where
         i: usize,
     ) -> Result<(NodeBlock<K>, NodeBlock<K>)> {
         // Allocate a new block and use the original child block capacity as hint for the needed capacity
-        let mut existing_node = self.keys.get(parent.child_nodes[i])?;
+        let mut existing_node = self.keys.get_owned(parent.child_nodes[i])?;
         let existing_node_size = self.keys.serialized_size(&existing_node)?;
         let new_node_id = self
             .keys
@@ -501,7 +506,7 @@ where
         while let Some(e) = self.stack.pop() {
             match e {
                 StackEntry::Child { parent, idx } => {
-                    match self.keys.get(parent.child_nodes[idx]) {
+                    match self.keys.get_owned(parent.child_nodes[idx]) {
                         Ok(c) => {
                             // Add all entries for this child node on the stack
                             let mut new_elements =
@@ -514,7 +519,7 @@ where
                 }
                 StackEntry::Key { node, idx } => {
                     let payload_id = node.keys[idx].payload_id;
-                    match self.values.get(payload_id) {
+                    match self.values.get_owned(payload_id) {
                         Ok(v) => {
                             return Some(Ok((node.keys[idx].key.clone(), v)));
                         }

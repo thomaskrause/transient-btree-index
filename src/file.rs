@@ -67,7 +67,7 @@ pub struct TemporaryBlockFile<B> {
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
     serializer: bincode::DefaultOptions,
-    cache: Arc<Mutex<LruCache<usize, B>>>,
+    cache: Arc<Mutex<LruCache<usize, Arc<B>>>>,
 }
 
 impl<B> TemporaryBlockFile<B>
@@ -96,16 +96,7 @@ where
         })
     }
 
-    /// Get a block with the given id.
-    pub fn get(&self, block_id: usize) -> Result<B> {
-        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
-
-        if let Ok(mut cache) = self.cache.try_lock() {
-            if let Some(b) = cache.get_mut(&block_id) {
-                return Ok(b.clone());
-            }
-        }
-
+    fn read_block(&self, block_id: usize) -> Result<B> {
         // Read the size of the stored block
         let header = self.block_header(block_id)?;
         let used_size: usize = header.used.try_into()?;
@@ -116,6 +107,30 @@ where
             .serializer
             .deserialize(&self.mmap[block_start..block_end])?;
         Ok(result)
+    }
+
+    /// Get a block with the given id give ownership of the result to the caller.
+    pub fn get_owned(&self, block_id: usize) -> Result<B> {
+        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
+        if let Ok(mut cache) = self.cache.try_lock() {
+            if let Some(b) = cache.get_mut(&block_id) {
+                return Ok(b.as_ref().clone());
+            }
+        }
+        let result = self.read_block(block_id)?;
+        Ok(result)
+    }
+
+    pub fn get(&self, block_id: usize) -> Result<Arc<B>> {
+        // Try to get the object from the cache first
+        if let Ok(mut cache) = self.cache.try_lock() {
+            if let Some(b) = cache.get_mut(&block_id) {
+                return Ok(b.clone());
+            }
+        }
+        let result = self.read_block(block_id)?;
+        Ok(Arc::new(result))
     }
 
     /// Determines wether a given block would still fit in the originally allocated space.
@@ -178,7 +193,7 @@ where
             .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
 
         if let Ok(mut cache) = self.cache.lock() {
-            cache.put(block_id, block.clone());
+            cache.put(block_id, Arc::new(block.clone()));
         }
 
         Ok(())
@@ -303,7 +318,7 @@ mod tests {
         m.put(idx, &b).unwrap();
 
         // Get and check it is still equal
-        let retrieved_block = m.get(idx).unwrap();
+        let retrieved_block = m.get_owned(idx).unwrap();
         assert_eq!(b, retrieved_block);
 
         // The block should be able to hold a little bit more vector elements
@@ -312,7 +327,7 @@ mod tests {
         }
         assert_eq!(true, m.can_update(idx, &b).is_ok());
         m.put(idx, &b).unwrap();
-        let retrieved_block = m.get(idx).unwrap();
+        let retrieved_block = m.get_owned(idx).unwrap();
         assert_eq!(b, retrieved_block);
 
         // We can't grow the block beyond the allocated limit
@@ -326,6 +341,6 @@ mod tests {
         assert_eq!(1, m.relocated_blocks.len());
         assert_eq!(true, m.relocated_blocks.contains_key(&idx));
         // Get the block and check the new value is returned
-        assert_eq!(large_block, m.get(idx).unwrap());
+        assert_eq!(large_block, m.get_owned(idx).unwrap());
     }
 }
