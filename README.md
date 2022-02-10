@@ -1,3 +1,5 @@
+![docs.rs](https://img.shields.io/docsrs/transient-btree-index) ![Crates.io](https://img.shields.io/crates/v/transient-btree-index)
+
 # Transient Index using B-Trees
 
 `transient-btree-index` allows you to create a BTree index backed by temporary files.
