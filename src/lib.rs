@@ -23,12 +23,12 @@
 //!     b.insert(1,2)?;
 //!     b.insert(200, 4)?;
 //!     b.insert(20, 3)?;
-//! 
+//!
 //!     assert_eq!(true, b.contains_key(&200)?);
 //!     assert_eq!(false, b.contains_key(&2)?);  
-//! 
+//!
 //!     assert_eq!(3, b.get(&20)?.unwrap());  
-//! 
+//!
 //!     for e in b.range(1..30)? {
 //!         let (k, v) = e?;
 //!         dbg!(k, v);

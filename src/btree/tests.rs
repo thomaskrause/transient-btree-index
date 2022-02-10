@@ -150,6 +150,8 @@ fn range_query_dense() {
         t.insert(i, i).unwrap();
     }
 
+    print_tree(&t).unwrap();
+
     // Get sub-range
     let result: Result<Vec<_>> = t.range(40..1024).unwrap().collect();
     let result = result.unwrap();
@@ -157,6 +159,16 @@ fn range_query_dense() {
     assert_eq!((40, 40), result[0]);
     assert_eq!((1023, 1023), result[983]);
     check_order(&t, 40..1024);
+
+    let result: Result<Vec<_>> = t
+        .range((Bound::Excluded(40), Bound::Included(1024)))
+        .unwrap()
+        .collect();
+    let result = result.unwrap();
+    assert_eq!(984, result.len());
+    assert_eq!((41, 41), result[0]);
+    assert_eq!((1024, 1024), result[983]);
+    check_order(&t, (Bound::Excluded(40), Bound::Included(1024)));
 
     // Get complete range
     let result: Result<Vec<_>> = t.range(..).unwrap().collect();

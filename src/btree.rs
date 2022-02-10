@@ -38,7 +38,7 @@ where
                 // Key not found, but key would be inserted at i, so the next child or key could contain the key
                 Err(i) => {
                     if node.is_leaf() {
-                        // Whenn searching for for example for 5 in a leaf [2,4,8], i would be 3 and we need to
+                        // When searching for for example for 5 in a leaf [2,4,8], i would be 3 and we need to
                         // start our search at the third key.
                         // If the search range is after the largest key (e.g. 10 for the previous example),
                         // the binary search will return the length of the vector as insertion position,
@@ -68,12 +68,18 @@ where
                     }
                 }
                 // Key not found, but key would be inserted at i, so the previous child could contain the key
-                // E.g. when searching for 5 in [c0, k0=2, c1, k1=4, c2, k3=8, c3 ], i would be 3 and we need to
+                // E.g. when searching for 5 in [c0, k0=2, c1, k1=4, c2, k2=8, c3 ], i would be 2 and we need to
                 // start our search a c2 which is before this key.
-                Err(i) => StackEntry::Child {
-                    parent: node,
-                    idx: *i - 1,
-                },
+                Err(i) => {
+                    if node.is_leaf() {
+                        StackEntry::Key { node, idx: *i }
+                    } else {
+                        StackEntry::Child {
+                            parent: node,
+                            idx: *i,
+                        }
+                    }
+                }
             }
         }
         Bound::Unbounded => {
