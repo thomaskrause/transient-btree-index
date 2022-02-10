@@ -16,4 +16,4 @@ jobs:
           profile: minimal
       - uses: Swatinem/rust-cache@v1.3.0
       - run: cargo build --all-features --verbose
-      - run: cargo test --all-features --verbose  
+      - run: cargo test --all-features --verbose
