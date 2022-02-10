@@ -160,7 +160,14 @@ where
     }
 }
 
-/// Map backed by a single file on disk implemented using a B-tree.
+/// B-tree index backed by temporary memory mapped files.
+///
+/// Operations similar to the interface of [`std::collections::BTreeMap`] are implemented.
+/// But since the index works with files, most of them return a `Result` to allow error-handling.
+/// Deleting an entry is explicitly not implemented and when memory blocks need to grow fragmentation of the on-disk memory might occur.
+///
+/// Since serde is used to serialize the keys and values, the types need to implement the [`Serialize`] and [`DeserializeOwned`] traits.
+/// Also, only keys and values that implement [`Clone`] can be used.
 pub struct BtreeIndex<K, V>
 where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
@@ -174,6 +181,7 @@ where
     nr_elements: usize,
 }
 
+/// Configuration for a B-tree index.
 pub struct BtreeConfig {
     order: usize,
     est_max_key_size: usize,
@@ -210,12 +218,15 @@ impl BtreeConfig {
     }
 
     /// Sets the order of the tree, which determines how many elements a single node can store.
+    ///
+    /// A B-tree is balanced so the number of keys of a node is between the order and the order times two.
+    /// The order must be at least 2 for this implementation.
     pub fn order(mut self, order: u8) -> Self {
         self.order = order as usize;
         self
     }
 
-    /// Sets the number of blocks/pages hold in an internal cache.
+    /// Sets the number of blocks/pages to hold in an internal cache.
     pub fn block_cache_size(mut self, block_cache_size: usize) -> Self {
         self.block_cache_size = block_cache_size;
         self
@@ -268,6 +279,7 @@ where
         })
     }
 
+    /// Searches for a key in the index and returns the value if found.
     pub fn get(&self, key: &K) -> Result<Option<V>> {
         let root_node = self.keys.get(self.root_id)?;
         if let Some((node, i)) = self.search(root_node, key)? {
@@ -278,11 +290,16 @@ where
         }
     }
 
+    /// Returns whether the index contains the given key.
     pub fn contains_key(&self, key: &K) -> Result<bool> {
         let root_node = self.keys.get(self.root_id)?;
         Ok(self.search(root_node, key)?.is_some())
     }
 
+    /// Insert a new element into the index.
+    ///
+    /// Existing values will be overwritten and returned.
+    /// If the operation fails, you should assume that the whole index is corrupted.
     pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
         // On sorted insert, the last inserted block might the one we need to insert the key into
         let last_inserted_node = self.keys.get(self.last_inserted_node_id)?;
@@ -323,14 +340,38 @@ where
         }
     }
 
+    /// Returns true if the index does not contain any elements.
     pub fn is_empty(&self) -> bool {
         self.nr_elements == 0
     }
 
+    /// Returns the length of the index.
     pub fn len(&self) -> usize {
         self.nr_elements
     }
 
+    /// Return an iterator over a range of keys.
+    ///
+    /// If you want to iterate over all entries of the index, use the unbounded `..` iterator.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use transient_btree_index::{BtreeConfig, BtreeIndex, Error};
+    ///
+    /// fn main() -> std::result::Result<(), Error> {
+    ///     let mut b = BtreeIndex::<u16,u16>::with_capacity(BtreeConfig::default(), 10)?;
+    ///     b.insert(1,2)?;
+    ///     b.insert(200, 4)?;
+    ///     b.insert(20, 3)?;
+    ///
+    ///     for e in b.range(..)? {
+    ///         let (k, v) = e?;
+    ///         dbg!(k, v);
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn range<R>(&self, range: R) -> Result<Range<K, V>>
     where
         R: RangeBounds<K>,
