@@ -32,6 +32,33 @@ fn benchmark(c: &mut Criterion) {
         })
     });
 
+    c.bench_function("insert byte vector", |b| {
+        // Create an index with 10.000 random entries
+        let n_entries = 10_000;
+
+        let config = BtreeConfig::default().max_key_size(16).max_value_size(64);
+
+        let mut btree: BtreeIndex<Vec<u8>, Vec<u8>> =
+            BtreeIndex::with_capacity(config, n_entries).unwrap();
+
+        // Insert the strings
+        for _ in 0..n_entries {
+            btree
+                .insert(fake::vec![u8; 4..16], fake::vec![u8; 32..64])
+                .unwrap();
+        }
+
+        // Generate and insert a known key/value
+        let search_key = fake::vec![u8; 4..16];
+        let search_value = fake::vec![u8; 32..64];
+
+        b.iter(|| {
+            btree
+                .insert(search_key.clone(), search_value.clone())
+                .unwrap();
+        })
+    });
+
     c.bench_function("search existing string", |b| {
         // Create an index with 10.000 random entries
         let n_entries = 10_000;
