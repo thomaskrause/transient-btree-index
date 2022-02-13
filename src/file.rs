@@ -81,7 +81,10 @@ impl NodeFile {
     pub fn with_capacity(capacity: usize) -> Result<NodeFile> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
-        let mmap = MmapOptions::new().stack().len(capacity).map_anon()?;
+        let mmap = MmapOptions::new()
+            .stack()
+            .len(capacity * NODE_BLOCK_ALIGNED_SIZE)
+            .map_anon()?;
 
         Ok(NodeFile {
             mmap,

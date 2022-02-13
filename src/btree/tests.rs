@@ -25,7 +25,7 @@ where
     K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
     V: Serialize + DeserializeOwned + Clone,
 {
-    let nb = t.keys.get(node)?;
+    let nb = t.node_key_blocks.get(node)?;
     let mut branch = builder.add_branch(&format!(
         "(node {} with {} keys and {} children)",
         nb.id,

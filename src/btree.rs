@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::Result,
-    file::{page_aligned_capacity, BlockHeader, TemporaryBlockFile},
+    file::{page_aligned_capacity, BlockHeader, TemporaryBlockFile, NodeFile},
     Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -174,7 +174,9 @@ where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
     V: Serialize + DeserializeOwned + Clone,
 {
-    keys: TemporaryBlockFile<NodeBlock<K>>,
+    nodes: NodeFile,
+    node_key_blocks: TemporaryBlockFile<NodeBlock<K>>,
+    keys: TemporaryBlockFile<K>,
     values: TemporaryBlockFile<V>,
     root_id: usize,
     last_inserted_node_id: usize,
@@ -252,27 +254,37 @@ where
         let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
         let capacity_in_blocks = capacity / config.order;
 
-        let mut keys = TemporaryBlockFile::with_capacity(
+        let nodes = NodeFile::with_capacity(capacity / config.order)?;
+
+        let mut node_key_blocks = TemporaryBlockFile::with_capacity(
             capacity_in_blocks * (block_size + BlockHeader::size()),
             config.block_cache_size,
         )?;
+
+        let keys = TemporaryBlockFile::with_capacity(
+            (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
+            config.block_cache_size,
+        )?;
+
         let values = TemporaryBlockFile::with_capacity(
             (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
 
         // Always add an empty root node
-        let root_id = keys.allocate_block(page_aligned_capacity(block_size))?;
+        let root_id = node_key_blocks.allocate_block(page_aligned_capacity(block_size))?;
         let root_node = NodeBlock {
             child_nodes: Vec::default(),
             keys: Vec::default(),
             payload: Vec::default(),
             id: root_id,
         };
-        keys.put(root_id, &root_node)?;
+        node_key_blocks.put(root_id, &root_node)?;
 
         Ok(BtreeIndex {
             root_id,
+            nodes,
+            node_key_blocks,
             keys,
             values,
             order: config.order,
@@ -283,7 +295,7 @@ where
 
     /// Searches for a key in the index and returns the value if found.
     pub fn get(&self, key: &K) -> Result<Option<V>> {
-        let root_node = self.keys.get(self.root_id)?;
+        let root_node = self.node_key_blocks.get(self.root_id)?;
         if let Some((node, i)) = self.search(root_node, key)? {
             let v = self.values.get_owned(node.payload[i])?;
             Ok(Some(v))
@@ -294,7 +306,7 @@ where
 
     /// Returns whether the index contains the given key.
     pub fn contains_key(&self, key: &K) -> Result<bool> {
-        let root_node = self.keys.get(self.root_id)?;
+        let root_node = self.node_key_blocks.get(self.root_id)?;
         Ok(self.search(root_node, key)?.is_some())
     }
 
@@ -304,7 +316,7 @@ where
     /// If the operation fails, you should assume that the whole index is corrupted.
     pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>> {
         // On sorted insert, the last inserted block might the one we need to insert the key into
-        let last_inserted_node = self.keys.get(self.last_inserted_node_id)?;
+        let last_inserted_node = self.node_key_blocks.get(self.last_inserted_node_id)?;
         if let (Some(start), Some(end)) = (
             last_inserted_node.keys.first(),
             last_inserted_node.keys.last(),
@@ -319,12 +331,12 @@ where
             }
         };
 
-        let mut root_node = self.keys.get_owned(self.root_id)?;
+        let mut root_node = self.node_key_blocks.get_owned(self.root_id)?;
         if root_node.number_of_keys() == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
-            let current_root_size = self.keys.serialized_size(&root_node)?;
+            let current_root_size = self.node_key_blocks.serialized_size(&root_node)?;
             let new_root_id = self
-                .keys
+                .node_key_blocks
                 .allocate_block(page_aligned_capacity(current_root_size.try_into()?))?;
 
             let mut new_root: NodeBlock<K> = NodeBlock {
@@ -380,7 +392,7 @@ where
         R: RangeBounds<K>,
     {
         // Start to search at the root node
-        let root = self.keys.get_owned(self.root_id)?;
+        let root = self.node_key_blocks.get_owned(self.root_id)?;
         let start = range.start_bound().cloned();
         let end = range.end_bound().cloned();
         let mut stack = root.find_range(range);
@@ -392,7 +404,7 @@ where
             stack,
             start,
             end,
-            keys: &self.keys,
+            keys: &self.node_key_blocks,
             values: &self.values,
             phantom: PhantomData,
         };
@@ -415,7 +427,7 @@ where
         } else {
             // search in the matching child node
             let child_block_id = node.child_nodes[i];
-            let child_node = self.keys.get(child_block_id)?;
+            let child_node = self.node_key_blocks.get(child_block_id)?;
             self.search(child_node, key)
         }
     }
@@ -440,14 +452,14 @@ where
                     self.values.put(payload_id, &value)?;
                     node.keys.insert(i, key.clone());
                     node.payload.insert(i, payload_id);
-                    self.keys.put(node.id, node)?;
+                    self.node_key_blocks.put(node.id, node)?;
                     self.nr_elements += 1;
                     self.last_inserted_node_id = node.id;
                     Ok(None)
                 } else {
                     // Insert key into correct child
                     // Default to left child
-                    let mut c = self.keys.get_owned(node.child_nodes[i])?;
+                    let mut c = self.node_key_blocks.get_owned(node.child_nodes[i])?;
                     // If the child is full, we need to split it
                     if c.number_of_keys() == (2 * self.order) - 1 {
                         let (mut left, mut right) = self.split_child(node, i)?;
@@ -482,10 +494,10 @@ where
         i: usize,
     ) -> Result<(NodeBlock<K>, NodeBlock<K>)> {
         // Allocate a new block and use the original child block capacity as hint for the needed capacity
-        let mut existing_node = self.keys.get_owned(parent.child_nodes[i])?;
-        let existing_node_size = self.keys.serialized_size(&existing_node)?;
+        let mut existing_node = self.node_key_blocks.get_owned(parent.child_nodes[i])?;
+        let existing_node_size = self.node_key_blocks.serialized_size(&existing_node)?;
         let new_node_id = self
-            .keys
+            .node_key_blocks
             .allocate_block(page_aligned_capacity(existing_node_size.try_into()?))?;
 
         let new_node_keys = existing_node.keys.split_off(self.order);
@@ -517,9 +529,9 @@ where
         parent.child_nodes.insert(i + 1, new_node_id);
 
         // Save all changed files
-        self.keys.put(new_node.id, &new_node)?;
-        self.keys.put(parent.id, parent)?;
-        self.keys.put(existing_node.id, &existing_node)?;
+        self.node_key_blocks.put(new_node.id, &new_node)?;
+        self.node_key_blocks.put(parent.id, parent)?;
+        self.node_key_blocks.put(existing_node.id, &existing_node)?;
 
         Ok((existing_node, new_node))
     }
