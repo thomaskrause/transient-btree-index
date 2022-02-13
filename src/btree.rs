@@ -7,10 +7,14 @@ use std::{
 
 use crate::{
     error::Result,
-    file::{page_aligned_capacity, BlockHeader, TemporaryBlockFile, NodeFile},
+    file::{page_aligned_capacity, BlockHeader, TemporaryBlockFile},
     Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
+
+use self::node::NodeFile;
+
+mod node;
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
 struct NodeBlock<K> {
@@ -174,9 +178,8 @@ where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
     V: Serialize + DeserializeOwned + Clone,
 {
-    nodes: NodeFile,
+    nodes: node::NodeFile<K>,
     node_key_blocks: TemporaryBlockFile<NodeBlock<K>>,
-    keys: TemporaryBlockFile<K>,
     values: TemporaryBlockFile<V>,
     root_id: usize,
     last_inserted_node_id: usize,
@@ -254,15 +257,10 @@ where
         let block_size = empty_struct_size + keys_vec_size + child_nodes_size;
         let capacity_in_blocks = capacity / config.order;
 
-        let nodes = NodeFile::with_capacity(capacity / config.order)?;
+        let nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
 
         let mut node_key_blocks = TemporaryBlockFile::with_capacity(
             capacity_in_blocks * (block_size + BlockHeader::size()),
-            config.block_cache_size,
-        )?;
-
-        let keys = TemporaryBlockFile::with_capacity(
-            (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
 
@@ -285,7 +283,6 @@ where
             root_id,
             nodes,
             node_key_blocks,
-            keys,
             values,
             order: config.order,
             nr_elements: 0,
