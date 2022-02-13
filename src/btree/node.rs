@@ -111,13 +111,11 @@ where K: Serialize + DeserializeOwned + Clone {
         Ok(view)
     }
 
-    
-
 
     /// Allocate a new node.
     ///
     /// Returns the ID of the new node.
-    pub fn allocate_block(&mut self) -> Result<u64> {
+    pub fn allocate_new_node(&mut self) -> Result<u64> {
         // Make sure we still have enough space left
         let new_offset = self.free_space_offset + NODE_BLOCK_ALIGNED_SIZE;
         self.grow(new_offset)?;
