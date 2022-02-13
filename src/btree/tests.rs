@@ -35,7 +35,7 @@ where
     if nb.is_leaf() {
         // Only print the keys
         for i in 0..nb.keys.len() {
-            builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i].key, i));
+            builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i], i));
         }
     } else {
         // Print both the keys and the child nodes
@@ -47,7 +47,7 @@ where
                 builder.add_leaf(&format!("ERROR: no child at index {}", i));
             }
             if i < nb.keys.len() {
-                builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i].key, i));
+                builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i], i));
             } else if i < nb.child_nodes.len() - 1 {
                 builder.add_leaf(&format!("ERROR: no key at index {}", i));
             }
