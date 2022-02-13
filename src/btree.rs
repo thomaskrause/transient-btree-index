@@ -13,15 +13,10 @@ use crate::{
 use serde::{de::DeserializeOwned, Serialize};
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
-struct Key<K> {
-    key: K,
-    payload_id: usize,
-}
-
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Clone)]
 struct NodeBlock<K> {
     id: usize,
-    keys: Vec<Key<K>>,
+    keys: Vec<K>,
+    payload: Vec<usize>,
     child_nodes: Vec<usize>,
 }
 
@@ -31,7 +26,7 @@ where
 {
     match start_bound {
         Bound::Included(key) => {
-            let key_pos = node.keys.binary_search_by(|e| e.key.cmp(key));
+            let key_pos = node.keys.binary_search_by(|e| e.cmp(key));
             match &key_pos {
                 // Key was found, start at this position
                 Ok(i) => StackEntry::Key { node, idx: *i },
@@ -54,7 +49,7 @@ where
             }
         }
         Bound::Excluded(key) => {
-            let key_pos = node.keys.binary_search_by(|e| e.key.cmp(key));
+            let key_pos = node.keys.binary_search_by(|e| e.cmp(key));
             match &key_pos {
                 // Key was found, start at child or key after the key
                 Ok(i) => {
@@ -128,8 +123,8 @@ where
                 StackEntry::Child { parent, idx } => *idx < parent.child_nodes.len(),
                 // Check if the key is still in range
                 StackEntry::Key { node, idx } => match range.end_bound() {
-                    Bound::Included(end) => *idx < node.keys.len() && &node.keys[*idx].key <= end,
-                    Bound::Excluded(end) => *idx < node.keys.len() && &node.keys[*idx].key < end,
+                    Bound::Included(end) => *idx < node.keys.len() && &node.keys[*idx] <= end,
+                    Bound::Excluded(end) => *idx < node.keys.len() && &node.keys[*idx] < end,
                     Bound::Unbounded => *idx < node.keys.len(),
                 },
             };
@@ -271,6 +266,7 @@ where
         let root_node = NodeBlock {
             child_nodes: Vec::default(),
             keys: Vec::default(),
+            payload: Vec::default(),
             id: root_id,
         };
         keys.put(root_id, &root_node)?;
@@ -289,7 +285,7 @@ where
     pub fn get(&self, key: &K) -> Result<Option<V>> {
         let root_node = self.keys.get(self.root_id)?;
         if let Some((node, i)) = self.search(root_node, key)? {
-            let v = self.values.get_owned(node.keys[i].payload_id)?;
+            let v = self.values.get_owned(node.payload[i])?;
             Ok(Some(v))
         } else {
             Ok(None)
@@ -313,8 +309,8 @@ where
             last_inserted_node.keys.first(),
             last_inserted_node.keys.last(),
         ) {
-            if key >= start.key
-                && key <= end.key
+            if &key >= start
+                && &key <= end
                 && last_inserted_node.number_of_keys() < (2 * self.order) - 1
             {
                 let mut copied_node = last_inserted_node.as_ref().clone();
@@ -334,6 +330,7 @@ where
             let mut new_root: NodeBlock<K> = NodeBlock {
                 id: new_root_id,
                 keys: vec![],
+                payload: vec![],
                 child_nodes: vec![root_node.id],
             };
             self.split_child(&mut new_root, 0)?;
@@ -408,10 +405,10 @@ where
         key: &K,
     ) -> Result<Option<(Arc<NodeBlock<K>>, usize)>> {
         let mut i = 0;
-        while i < node.number_of_keys() && key > &node.keys[i].key {
+        while i < node.number_of_keys() && key > &node.keys[i] {
             i += 1;
         }
-        if i < node.number_of_keys() && key == &node.keys[i].key {
+        if i < node.number_of_keys() && key == &node.keys[i] {
             Ok(Some((node, i)))
         } else if node.is_leaf() {
             Ok(None)
@@ -424,10 +421,10 @@ where
     }
 
     fn insert_nonfull(&mut self, node: &mut NodeBlock<K>, key: &K, value: V) -> Result<Option<V>> {
-        match node.keys.binary_search_by(|e| e.key.cmp(key)) {
+        match node.keys.binary_search_by(|e| e.cmp(key)) {
             Ok(i) => {
                 // Key already exists, replace the payload
-                let payload_id = node.keys[i].payload_id;
+                let payload_id = node.payload[i];
                 let previous_payload = self.values.get_owned(payload_id)?;
                 self.values.put(payload_id, &value)?;
                 self.last_inserted_node_id = node.id;
@@ -441,13 +438,8 @@ where
                         .values
                         .allocate_block(value_size + BlockHeader::size())?;
                     self.values.put(payload_id, &value)?;
-                    node.keys.insert(
-                        i,
-                        Key {
-                            key: key.clone(),
-                            payload_id,
-                        },
-                    );
+                    node.keys.insert(i, key.clone());
+                    node.payload.insert(i, payload_id);
                     self.keys.put(node.id, node)?;
                     self.nr_elements += 1;
                     self.last_inserted_node_id = node.id;
@@ -459,14 +451,14 @@ where
                     // If the child is full, we need to split it
                     if c.number_of_keys() == (2 * self.order) - 1 {
                         let (mut left, mut right) = self.split_child(node, i)?;
-                        if key == &node.keys[i].key {
+                        if key == &node.keys[i] {
                             // Key already exists and was added to the parent node, replace the payload
-                            let payload_id = node.keys[i].payload_id;
+                            let payload_id = node.payload[i];
                             let previous_payload = self.values.get_owned(payload_id)?;
                             self.values.put(payload_id, &value)?;
                             self.last_inserted_node_id = node.id;
                             Ok(Some(previous_payload))
-                        } else if key > &node.keys[i].key {
+                        } else if key > &node.keys[i] {
                             // Key is now larger, use the newly created right child
                             let existing = self.insert_nonfull(&mut right, key, value)?;
                             Ok(existing)
@@ -497,6 +489,7 @@ where
             .allocate_block(page_aligned_capacity(existing_node_size.try_into()?))?;
 
         let new_node_keys = existing_node.keys.split_off(self.order);
+        let new_payload = existing_node.payload.split_off(self.order);
         let new_node_children = if existing_node.is_leaf() {
             vec![]
         } else {
@@ -506,6 +499,7 @@ where
         let new_node = NodeBlock {
             child_nodes: new_node_children,
             keys: new_node_keys,
+            payload: new_payload,
             id: new_node_id,
         };
 
@@ -514,7 +508,12 @@ where
             .keys
             .pop()
             .ok_or(Error::EmptyChildNodeInSplit)?;
+        let split_payload = existing_node
+            .payload
+            .pop()
+            .ok_or(Error::EmptyChildNodeInSplit)?;
         parent.keys.insert(i, split_key);
+        parent.payload.insert(i, split_payload);
         parent.child_nodes.insert(i + 1, new_node_id);
 
         // Save all changed files
@@ -570,10 +569,10 @@ where
                     }
                 }
                 StackEntry::Key { node, idx } => {
-                    let payload_id = node.keys[idx].payload_id;
+                    let payload_id = node.payload[idx];
                     match self.values.get_owned(payload_id) {
                         Ok(v) => {
-                            return Some(Ok((node.keys[idx].key.clone(), v)));
+                            return Some(Ok((node.keys[idx].clone(), v)));
                         }
                         Err(e) => {
                             return Some(Err(e));
