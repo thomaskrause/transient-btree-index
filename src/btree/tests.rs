@@ -116,6 +116,8 @@ fn insert_get_static_size() {
     assert_eq!(Some(42), t.insert(0, 100).unwrap());
     assert_eq!(Some(100), t.insert(0, 42).unwrap());
 
+    print_tree(&t).unwrap();
+
     for i in 1..nr_entries {
         assert_eq!(true, t.contains_key(&i).unwrap());
 

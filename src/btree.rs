@@ -234,9 +234,12 @@ where
     fn search(&self, node_id: u64, key: &K) -> Result<Option<(u64, usize)>> {
         let mut i = 0;
         let number_of_keys = self.nodes.number_of_keys(node_id)?;
-        let node_key = self.nodes.get_key(node_id, i)?;
+        let mut node_key = self.nodes.get_key(node_id, i)?;
         while i < number_of_keys && key > node_key.as_ref() {
             i += 1;
+            if i < number_of_keys {
+                node_key = self.nodes.get_key(node_id, i)?;
+            }
         }
         if i < number_of_keys && key == node_key.as_ref() {
             Ok(Some((node_id, i)))
@@ -269,7 +272,7 @@ where
 
                     // Make space for the new key by moving the other items to the right
                     let number_of_node_keys = self.nodes.number_of_keys(node_id)?;
-                    for i in ((i+1)..=number_of_node_keys).rev() {
+                    for i in ((i + 1)..=number_of_node_keys).rev() {
                         self.nodes.set_key(
                             node_id,
                             i,
