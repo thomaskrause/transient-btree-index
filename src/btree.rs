@@ -232,23 +232,17 @@ where
     }
 
     fn search(&self, node_id: u64, key: &K) -> Result<Option<(u64, usize)>> {
-        let mut i = 0;
-        let number_of_keys = self.nodes.number_of_keys(node_id)?;
-        let mut node_key = self.nodes.get_key(node_id, i)?;
-        while i < number_of_keys && key > node_key.as_ref() {
-            i += 1;
-            if i < number_of_keys {
-                node_key = self.nodes.get_key(node_id, i)?;
+        match self.nodes.binary_search(node_id, key)? {
+            SearchResult::Found(i) => Ok(Some((node_id, i))),
+            SearchResult::NotFound(i) => {
+                if self.nodes.is_leaf(node_id)? {
+                    Ok(None)
+                } else {
+                    // search in the matching child node
+                    let child_node_id = self.nodes.get_child_node(node_id, i)?;
+                    self.search(child_node_id, key)
+                }
             }
-        }
-        if i < number_of_keys && key == node_key.as_ref() {
-            Ok(Some((node_id, i)))
-        } else if self.nodes.is_leaf(node_id)? {
-            Ok(None)
-        } else {
-            // search in the matching child node
-            let child_node_id = self.nodes.get_child_node(node_id, i)?;
-            self.search(child_node_id, key)
         }
     }
 
