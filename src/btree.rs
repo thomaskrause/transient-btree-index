@@ -166,7 +166,7 @@ where
         if root_number_of_keys == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
             let new_root_id = self.nodes.split_root_node(self.root_id, self.order)?;
-         
+
             let existing = self.insert_nonfull(new_root_id, &key, value)?;
             self.root_id = new_root_id;
             Ok(existing)

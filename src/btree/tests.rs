@@ -277,6 +277,8 @@ fn sorted_iterator() {
 
     for a in 0..=255 {
         t.insert(vec![1, a], true).unwrap();
+        print_tree(&t).unwrap();
+        println!("--------------");
     }
     for a in 0..=255 {
         t.insert(vec![0, a], true).unwrap();
