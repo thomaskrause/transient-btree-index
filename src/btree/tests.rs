@@ -20,35 +20,45 @@ where
     Ok(())
 }
 
-fn print_tree_node<K, V>(builder: &mut TreeBuilder, t: &BtreeIndex<K, V>, node: usize) -> Result<()>
+fn print_tree_node<K, V>(builder: &mut TreeBuilder, t: &BtreeIndex<K, V>, node: u64) -> Result<()>
 where
     K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
     V: Serialize + DeserializeOwned + Clone,
 {
-    let nb = t.node_key_blocks.get(node)?;
     let mut branch = builder.add_branch(&format!(
         "(node {} with {} keys and {} children)",
-        nb.id,
-        nb.keys.len(),
-        nb.child_nodes.len()
+        node,
+        t.nodes.number_of_keys(node)?,
+        t.nodes.number_of_children(node)?
     ));
-    if nb.is_leaf() {
+    if t.nodes.is_leaf(node)? {
         // Only print the keys
-        for i in 0..nb.keys.len() {
-            builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i], i));
+        for i in 0..t.nodes.number_of_keys(node)? {
+            builder.add_leaf(&format!(
+                "{:?} ({}. key)",
+                t.nodes.get_key_owned(node, i)?,
+                i
+            ));
         }
     } else {
         // Print both the keys and the child nodes
-        let max_index = nb.child_nodes.len().max(nb.keys.len());
+        let max_index = t
+            .nodes
+            .number_of_children(node)?
+            .max(t.nodes.number_of_keys(node)?);
         for i in 0..max_index {
-            if i < nb.child_nodes.len() {
-                print_tree_node(builder, t, nb.child_nodes[i])?;
+            if i < t.nodes.number_of_children(node)? {
+                print_tree_node(builder, t, t.nodes.get_child_node(node, i)?)?;
             } else {
                 builder.add_leaf(&format!("ERROR: no child at index {}", i));
             }
-            if i < nb.keys.len() {
-                builder.add_leaf(&format!("{:?} ({}. key)", nb.keys[i], i));
-            } else if i < nb.child_nodes.len() - 1 {
+            if i < t.nodes.number_of_keys(node)? {
+                builder.add_leaf(&format!(
+                    "{:?} ({}. key)",
+                    t.nodes.get_key_owned(node, i)?,
+                    i
+                ));
+            } else if i < t.nodes.number_of_children(node)? - 1 {
                 builder.add_leaf(&format!("ERROR: no key at index {}", i));
             }
         }
