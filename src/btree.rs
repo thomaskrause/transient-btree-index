@@ -277,7 +277,7 @@ where
                     // Default to left child
                     let child_id = self.nodes.get_child_node(node_id, i)?;
                     // If the child is full, we need to split it
-                    if self.nodes.number_of_keys(node_id)? == (2 * self.order) - 1 {
+                    if self.nodes.number_of_keys(child_id)? == (2 * self.order) - 1 {
                         let (left, right) = self.nodes.split_child(node_id, i, self.order)?;
                         let node_key = self.nodes.get_key(node_id, i)?;
                         if key == node_key.as_ref() {
