@@ -165,11 +165,8 @@ where
         let root_number_of_keys = self.nodes.number_of_keys(self.root_id).unwrap_or(0);
         if root_number_of_keys == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
-            let new_root_id = self.nodes.allocate_new_node()?;
-
-            self.nodes.set_child_node(new_root_id, 0, self.root_id)?;
-
-            self.split_child(new_root_id, 0)?;
+            let new_root_id = self.nodes.split_root_node(self.root_id, self.order)?;
+         
             let existing = self.insert_nonfull(new_root_id, &key, value)?;
             self.root_id = new_root_id;
             Ok(existing)
@@ -281,7 +278,7 @@ where
                     let child_id = self.nodes.get_child_node(node_id, i)?;
                     // If the child is full, we need to split it
                     if self.nodes.number_of_keys(node_id)? == (2 * self.order) - 1 {
-                        let (left, right) = self.split_child(node_id, i)?;
+                        let (left, right) = self.nodes.split_child(node_id, i, self.order)?;
                         let node_key = self.nodes.get_key(node_id, i)?;
                         if key == node_key.as_ref() {
                             // Key already exists and was added to the parent node, replace the payload
@@ -307,13 +304,6 @@ where
                 }
             }
         }
-    }
-
-    fn split_child(&mut self, parent_node_id: u64, child_idx: usize) -> Result<(u64, u64)> {
-        let (existing_node, new_node_id) =
-            self.nodes
-                .split_child(parent_node_id, child_idx, self.order)?;
-        Ok((existing_node, new_node_id))
     }
 }
 
