@@ -11,8 +11,10 @@ pub enum Error {
     ExistingBlockTooSmall { block_id: usize, needed: u64 },
     #[error("The order of the tree must be at least 2, but {0} was requested.")]
     OrderTooSmall(usize),
+    #[error("The order of the tree must is too large ({0} was requested).")]
+    OrderTooLarge(usize),
     #[error("Requested index {idx} is larger than the number of keys in the node ({len})")]
-    KeyIndexOutOfBounds { idx: usize, len: usize },
+    KeyIndexOutOfBounds { idx: usize, len: usize},
     #[error("When trying to insert a non-existing key, the found node block was internal and not a leaf node")]
     InsertFoundInternalNode,
     #[error("Splitting a node resulted in an empty child node.")]

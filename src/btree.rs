@@ -10,7 +10,7 @@ use crate::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 
-use self::node::{NodeFile, SearchResult, StackEntry};
+use self::node::{NodeFile, SearchResult, StackEntry, MAX_NUMBER_KEYS};
 
 mod node;
 
@@ -46,7 +46,7 @@ pub struct BtreeConfig {
 impl Default for BtreeConfig {
     fn default() -> Self {
         Self {
-            order: 128,
+            order: 84,
             est_max_key_size: 32,
             est_max_value_size: 32,
             block_cache_size: 16,
@@ -96,6 +96,8 @@ where
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
+        } else if config.order > MAX_NUMBER_KEYS / 2 {
+            return Err(Error::OrderTooLarge(config.order));
         }
         let capacity_in_blocks = capacity / config.order;
 
@@ -160,7 +162,8 @@ where
             }
         }
 
-        if self.nodes.number_of_keys(self.root_id).unwrap_or(0) == (2 * self.order) - 1 {
+        let root_number_of_keys = self.nodes.number_of_keys(self.root_id).unwrap_or(0);
+        if root_number_of_keys == (2 * self.order) - 1 {
             // Create a new root node, because the current will become full
             let new_root_id = self.nodes.allocate_new_node()?;
 
