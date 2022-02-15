@@ -261,12 +261,27 @@ where
             }
             SearchResult::NotFound(i) => {
                 if self.nodes.is_leaf(node_id)? {
-                    // Insert new key with payload at the given position
                     let value_size: usize = self.values.serialized_size(&value)?.try_into()?;
                     let payload_id = self
                         .values
                         .allocate_block(value_size + BlockHeader::size())?;
                     self.values.put(payload_id, &value)?;
+
+                    // Make space for the new key by moving the other items to the right
+                    let number_of_node_keys = self.nodes.number_of_keys(node_id)?;
+                    for i in ((i+1)..=number_of_node_keys).rev() {
+                        self.nodes.set_key(
+                            node_id,
+                            i,
+                            self.nodes.get_key(node_id, i - 1)?.as_ref(),
+                        )?;
+                        self.nodes.set_payload(
+                            node_id,
+                            i,
+                            self.nodes.get_payload(node_id, i - 1)?,
+                        )?;
+                    }
+                    // Insert new key with payload at the given position
                     self.nodes.set_key(node_id, i, key)?;
                     self.nodes.set_payload(node_id, i, payload_id.try_into()?)?;
                     self.nr_elements += 1;
