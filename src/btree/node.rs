@@ -97,7 +97,7 @@ where
     }
 
     pub fn number_of_children(&self, node_id: u64) -> Result<usize> {
-        if self.is_leaf(node_id)? {
+        if !self.is_leaf(node_id)? {
             Ok(self.number_of_keys(node_id)? + 1)
         } else {
             Ok(0)
