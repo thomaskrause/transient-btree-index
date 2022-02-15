@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use transient_btree_index::{BtreeConfig, BtreeIndex, Error};
 
 fuzz_target!(|data: (Vec<(u32, u32)>, u8)| {
-    let order = data.1.max(2);
+    let order = data.1.max(2).min(84);
     let mut m = BTreeMap::default();
     let mut fixture =
         BtreeIndex::with_capacity(BtreeConfig::default().order(order), 1024).unwrap();
