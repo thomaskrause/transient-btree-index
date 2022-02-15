@@ -293,13 +293,19 @@ where
     }
 
     pub fn set_key(&mut self, node_id: u64, i: usize, key: &K) -> Result<()> {
-        let view = self.get(node_id)?;
-        let n: usize = view.num_keys().read() as usize;
+        let n: usize = self.get(node_id)?.num_keys().read() as usize;
         if i <= n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
-            let key_view = view.keys();
-            let key_id: u64 = u64::from_le_bytes(key_view.data()[offset..(offset + 8)].try_into()?);
-            self.keys.put(key_id.try_into()?, &key)?;
+            let key_size: usize = self.keys.serialized_size(key)?.try_into()?;
+            let key_id = self.keys.allocate_block(key_size + BlockHeader::size())?;
+            self.keys.put(key_id, &key)?;
+
+            let key_id: u64 = key_id.try_into()?;
+            let key_id = key_id.to_le_bytes();
+            let mut view = self.get_mut(node_id)?;
+
+            view.keys_mut().data_mut()[offset..(offset + 8)].copy_from_slice(&key_id);
+
             if i == n {
                 // The key was inserted at the end of the list
                 let mut view = self.get_mut(node_id)?;
@@ -423,8 +429,8 @@ where
         }
         // The last element of the existing node is dangling without a child node,
         // use it as the key for the parent node
-        let split_key = self.get_key(existing_node, split_at-1)?;
-        let split_payload = self.get_payload(existing_node, split_at-1)?;
+        let split_key = self.get_key(existing_node, split_at - 1)?;
+        let split_payload = self.get_payload(existing_node, split_at - 1)?;
         let mut existing_node_view = self.get_mut(existing_node)?;
         existing_node_view
             .num_keys_mut()
@@ -455,19 +461,15 @@ where
         Ok((existing_node, new_node_id))
     }
 
-    pub fn split_root_node(
-        &mut self,
-        old_root_id: u64,
-        split_at: usize,
-    ) -> Result<u64> {
+    pub fn split_root_node(&mut self, old_root_id: u64, split_at: usize) -> Result<u64> {
         let new_root_id = self.allocate_new_node()?;
-            
+
         let new_node_id = self.split_off(old_root_id, split_at)?;
 
         // The last element of the previous root node is dangling without a child node,
         // use it as the key for the parent node
-        let split_key = self.get_key(old_root_id, split_at-1)?;
-        let split_payload = self.get_payload(old_root_id, split_at-1)?;
+        let split_key = self.get_key(old_root_id, split_at - 1)?;
+        let split_payload = self.get_payload(old_root_id, split_at - 1)?;
         let mut existing_node_view = self.get_mut(old_root_id)?;
         existing_node_view
             .num_keys_mut()
@@ -481,7 +483,6 @@ where
 
         Ok(new_root_id)
     }
-
 
     fn split_off(&mut self, source_node_id: u64, split_at: usize) -> Result<u64> {
         let n = self.number_of_keys(source_node_id)?;
