@@ -10,21 +10,21 @@ use memmap2::{MmapMut, MmapOptions};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-const NODE_BLOCK_SIZE: usize = 4095;
+const NODE_BLOCK_SIZE: usize = 4081;
 const NODE_BLOCK_ALIGNED_SIZE: usize = 4096;
 
-const MAX_NUMBER_KEYS: usize = 10888;
+pub const MAX_NUMBER_KEYS: usize = 169;
 const MAX_NUMBER_CHILD_NODES: usize = MAX_NUMBER_KEYS + 1;
 
 // Defines a single BTree node with references to the actual values in a tuple file
 // This node can up to 1361 keys and 1362 child node references.
 define_layout!(node, LittleEndian, {
     id: u64,
-    num_keys: u16,
+    num_keys: u64,
     is_leaf: u8,
-    keys: [u8; MAX_NUMBER_KEYS],
-    payloads: [u8; MAX_NUMBER_KEYS],
-    child_nodes: [u8; MAX_NUMBER_CHILD_NODES],
+    keys: [u8; MAX_NUMBER_KEYS*8],
+    payloads: [u8; MAX_NUMBER_KEYS*8],
+    child_nodes: [u8; MAX_NUMBER_CHILD_NODES*8],
 });
 
 pub struct NodeFile<K> {
@@ -267,7 +267,7 @@ where
     pub fn get_key_owned(&self, node_id: u64, i: usize) -> Result<K> {
         let view = self.get(node_id)?;
         let n: usize = view.num_keys().read() as usize;
-        if i < n {
+        if i < n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
             let key_id: u64 =
                 u64::from_le_bytes(view.keys().data()[offset..(offset + 8)].try_into()?);
@@ -281,7 +281,7 @@ where
     pub fn get_key(&self, node_id: u64, i: usize) -> Result<Arc<K>> {
         let view = self.get(node_id)?;
         let n: usize = view.num_keys().read() as usize;
-        if i < n {
+        if i < n && i < MAX_NUMBER_KEYS{
             let offset = i * 8;
             let key_id: u64 =
                 u64::from_le_bytes(view.keys().data()[offset..(offset + 8)].try_into()?);
@@ -297,13 +297,13 @@ where
         let n: usize = view.num_keys().read() as usize;
         if i <= n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
-            let key_id: u64 =
-                u64::from_le_bytes(view.keys().data()[offset..(offset + 8)].try_into()?);
+            let key_view = view.keys();
+            let key_id: u64 = u64::from_le_bytes(key_view.data()[offset..(offset + 8)].try_into()?);
             self.keys.put(key_id.try_into()?, &key)?;
             if i == n {
                 // The key was inserted at the end of the list
                 let mut view = self.get_mut(node_id)?;
-                let n: u16 = (n + 1).try_into()?;
+                let n: u64 = (n + 1).try_into()?;
                 view.num_keys_mut().write(n);
             }
             Ok(())
@@ -315,7 +315,7 @@ where
     pub fn get_payload(&self, node_id: u64, i: usize) -> Result<u64> {
         let view = self.get(node_id)?;
         let n: usize = view.num_keys().read() as usize;
-        if i < n {
+        if i < n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
             let result: u64 =
                 u64::from_le_bytes(view.payloads().data()[offset..(offset + 8)].try_into()?);
@@ -328,10 +328,10 @@ where
     pub fn set_payload(&mut self, node_id: u64, i: usize, value: u64) -> Result<()> {
         let mut view = self.get_mut(node_id)?;
         let n: usize = view.num_keys().read() as usize;
-        if i < n {
+        if i < n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
             let value = value.to_le_bytes();
-            view.payloads_mut().data_mut()[offset..].copy_from_slice(&value);
+            view.payloads_mut().data_mut()[offset..(offset + 8)].copy_from_slice(&value);
             Ok(())
         } else {
             Err(Error::KeyIndexOutOfBounds { idx: i, len: n })
@@ -342,7 +342,7 @@ where
         let view = self.get(node_id)?;
         let n: usize = view.num_keys().read() as usize;
         let has_children: bool = view.is_leaf().read() == 0;
-        if has_children && i < (n + 1) {
+        if has_children && i < (n + 1) && i < MAX_NUMBER_CHILD_NODES {
             let offset = i * 8;
             let result: u64 =
                 u64::from_le_bytes(view.child_nodes().data()[offset..(offset + 8)].try_into()?);
@@ -364,7 +364,7 @@ where
         if i <= n && i < MAX_NUMBER_CHILD_NODES {
             let offset = i * 8;
             let value = value.to_le_bytes();
-            view.child_nodes_mut().data_mut()[offset..].copy_from_slice(&value);
+            view.child_nodes_mut().data_mut()[offset..(offset+8)].copy_from_slice(&value);
             Ok(())
         } else {
             Err(Error::KeyIndexOutOfBounds { idx: i, len: n })
