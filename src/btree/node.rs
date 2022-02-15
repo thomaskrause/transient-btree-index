@@ -411,22 +411,6 @@ where
         // Allocate a new block for the new child node
         let new_node_id = self.split_off(existing_node, split_at)?;
 
-        // Make space for the new key by moving all other entries to the right
-        for i in self.number_of_keys(parent_node_id)?..=child_idx {
-            self.set_key(
-                parent_node_id,
-                i,
-                self.get_key(parent_node_id, i - 1)?.as_ref(),
-            )?;
-            self.set_payload(parent_node_id, i, self.get_payload(parent_node_id, i - 1)?)?;
-        }
-        for i in self.number_of_children(parent_node_id)?..child_idx {
-            self.set_child_node(
-                parent_node_id,
-                i,
-                self.get_child_node(parent_node_id, i - 1)?,
-            )?;
-        }
         // The last element of the existing node is dangling without a child node,
         // use it as the key for the parent node
         let split_key = self.get_key(existing_node, split_at - 1)?;
@@ -437,7 +421,7 @@ where
             .write((split_at - 1).try_into()?);
 
         // Make space for the new entry in the parent node
-        for i in self.number_of_keys(parent_node_id)?..child_idx {
+        for i in ((child_idx + 1)..=self.number_of_keys(parent_node_id)?).rev() {
             self.set_key(
                 parent_node_id,
                 i,
@@ -445,7 +429,7 @@ where
             )?;
             self.set_payload(parent_node_id, i, self.get_payload(parent_node_id, i - 1)?)?;
         }
-        for i in self.number_of_children(parent_node_id)?..(child_idx + 1) {
+        for i in ((child_idx + 1)..=self.number_of_children(parent_node_id)?).rev() {
             self.set_child_node(
                 parent_node_id,
                 i,
