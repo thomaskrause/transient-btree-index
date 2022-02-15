@@ -365,6 +365,7 @@ where
             let offset = i * 8;
             let value = value.to_le_bytes();
             view.child_nodes_mut().data_mut()[offset..(offset + 8)].copy_from_slice(&value);
+            view.is_leaf_mut().write(0);
             Ok(())
         } else {
             Err(Error::KeyIndexOutOfBounds { idx: i, len: n })
@@ -422,8 +423,8 @@ where
         }
         // The last element of the existing node is dangling without a child node,
         // use it as the key for the parent node
-        let split_key = self.get_key(existing_node, split_at)?;
-        let split_payload = self.get_payload(existing_node, split_at)?;
+        let split_key = self.get_key(existing_node, split_at-1)?;
+        let split_payload = self.get_payload(existing_node, split_at-1)?;
         let mut existing_node_view = self.get_mut(existing_node)?;
         existing_node_view
             .num_keys_mut()
@@ -465,8 +466,8 @@ where
 
         // The last element of the previous root node is dangling without a child node,
         // use it as the key for the parent node
-        let split_key = self.get_key(old_root_id, split_at)?;
-        let split_payload = self.get_payload(old_root_id, split_at)?;
+        let split_key = self.get_key(old_root_id, split_at-1)?;
+        let split_payload = self.get_payload(old_root_id, split_at-1)?;
         let mut existing_node_view = self.get_mut(old_root_id)?;
         existing_node_view
             .num_keys_mut()
