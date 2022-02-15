@@ -21,9 +21,6 @@ pub fn page_aligned_capacity(capacity: usize) -> usize {
     (num_full_pages * PAGE_SIZE) - BlockHeader::size()
 }
 
-
-
-
 /// Representation of a header at the start of each block.
 ///
 /// When allocating new blocks, the size of this header is not included.
