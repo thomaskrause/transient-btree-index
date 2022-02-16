@@ -113,7 +113,7 @@ where
 
     fn get_cached_entry(&self, block_id: usize) -> Option<Arc<B>> {
         if let Ok(mut cache) = self.cache.try_lock() {
-            if let Some(b) = cache.get(&block_id).cloned() {
+            if let Some(b) = cache.remove(&block_id) {
                 // Mark the block as recently used by re-inserting it
                 cache.insert(block_id, b.clone());
                 return Some(b);
