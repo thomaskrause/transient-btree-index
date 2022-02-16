@@ -151,19 +151,13 @@ where
 
                 // get the next candidate
                 let next_candidate = match item {
-                    StackEntry::Child { parent, idx } => StackEntry::Key {
-                        node: parent.clone(),
-                        idx: idx,
-                    },
+                    StackEntry::Child { parent, idx } => StackEntry::Key { node: parent, idx },
                     StackEntry::Key { node, idx } => {
                         if self.is_leaf(node).unwrap_or(false) {
-                            StackEntry::Key {
-                                node: node.clone(),
-                                idx: idx + 1,
-                            }
+                            StackEntry::Key { node, idx: idx + 1 }
                         } else {
                             StackEntry::Child {
-                                parent: node.clone(),
+                                parent: node,
                                 idx: idx + 1,
                             }
                         }
@@ -298,7 +292,7 @@ where
             let offset = i * 8;
             let key_size: usize = self.keys.serialized_size(key)?.try_into()?;
             let key_id = self.keys.allocate_block(key_size + BlockHeader::size())?;
-            self.keys.put(key_id, &key)?;
+            self.keys.put(key_id, key)?;
 
             let key_id: u64 = key_id.try_into()?;
             let key_id = key_id.to_le_bytes();
@@ -509,14 +503,14 @@ where
         }
     }
 
-    fn get<'a>(&'a self, node_id: u64) -> Result<node::View<&[u8]>> {
+    fn get(&self, node_id: u64) -> Result<node::View<&[u8]>> {
         let node_id: usize = node_id.try_into()?;
         let offset: usize = NODE_BLOCK_ALIGNED_SIZE * node_id;
         let view = node::View::new(&self.mmap[offset..(offset + NODE_BLOCK_SIZE)]);
         Ok(view)
     }
 
-    fn get_mut<'a>(&'a mut self, node_id: u64) -> Result<node::View<&mut [u8]>> {
+    fn get_mut(&mut self, node_id: u64) -> Result<node::View<&mut [u8]>> {
         let node_id: usize = node_id.try_into()?;
         let offset: usize = NODE_BLOCK_ALIGNED_SIZE * node_id;
         let view = node::View::new(&mut self.mmap[offset..(offset + NODE_BLOCK_SIZE)]);
