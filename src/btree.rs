@@ -57,7 +57,7 @@ impl Default for BtreeConfig {
 impl BtreeConfig {
     /// Set the estimated maximum size in bytes for each key.
     ///
-    /// Keys can be larger than this, but if this happens too often the block for the key 
+    /// Keys can be larger than this, but if this happens too often the block for the key
     /// might need to be re-allocated, which causes memory fragmentation on the disk
     /// and some main memory overhead for remembering the re-allocated block IDs.
     pub fn max_key_size(mut self, est_max_key_size: usize) -> Self {
@@ -66,8 +66,8 @@ impl BtreeConfig {
     }
 
     /// Set the estimated maximum size in bytes for each values.
-    /// 
-    /// Values can be larger than this, but if this happens too often the block for the value 
+    ///
+    /// Values can be larger than this, but if this happens too often the block for the value
     /// might need to be re-allocated, which causes memory fragmentation on the disk
     /// and some main memory overhead for remembering the re-allocated block IDs.
     pub fn max_value_size(mut self, est_max_value_size: usize) -> Self {
@@ -77,9 +77,9 @@ impl BtreeConfig {
 
     /// Sets the order of the tree, which determines how many elements a single node can store.
     ///
-    /// A B-tree is balanced, so the number of keys of a node is between the order and the order times two. 
-    /// The order must be at least 2 and at most 84 for this implementation, and 
-    /// it is guaranteed that the internal structure for a node always fits inside a memory page. 
+    /// A B-tree is balanced, so the number of keys of a node is between the order and the order times two.
+    /// The order must be at least 2 and at most 84 for this implementation, and
+    /// it is guaranteed that the internal structure for a node always fits inside a memory page.
     /// The default is to use the maximum number of keys, so the memory page is utilized as much as possible.
     pub fn order(mut self, order: u8) -> Self {
         self.order = order as usize;
