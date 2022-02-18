@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::file::{BlockHeader, TemporaryBlockFile};
-use crate::{BtreeConfig, Error};
+use crate::{create_mmap, BtreeConfig, Error};
 use binary_layout::prelude::*;
-use memmap2::{MmapMut, MmapOptions};
+use memmap2::MmapMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -51,10 +51,7 @@ where
     pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<K>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
-        let mmap = MmapOptions::new()
-            .stack()
-            .len(capacity * NODE_BLOCK_ALIGNED_SIZE)
-            .map_anon()?;
+        let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
 
         // Each node can hold 1361 keys, so we need the space for them as well
         let number_of_keys = capacity * 1361;
@@ -529,7 +526,7 @@ where
         // Create a new anonymous memory mapped the content is copied to.
         // Allocate at least twice the old file size so we don't need to grow too often
         let new_size = requested_size.max(self.mmap.len() * 2);
-        let mut new_mmap = MmapOptions::new().stack().len(new_size).map_anon()?;
+        let mut new_mmap = create_mmap(new_size)?;
 
         // Copy all content from the old file into the new file
         new_mmap[0..self.mmap.len()].copy_from_slice(&self.mmap);

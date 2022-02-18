@@ -45,3 +45,8 @@ pub use error::Error;
 
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
+
+fn create_mmap(length: usize) -> error::Result<memmap2::MmapMut> {
+    let result = memmap2::MmapOptions::new().len(length).map_anon()?;
+    Ok(result)
+}

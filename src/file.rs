@@ -5,10 +5,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{error::Result, PAGE_SIZE};
+use crate::{create_mmap, error::Result, PAGE_SIZE};
 use bincode::Options;
 use linked_hash_map::LinkedHashMap;
-use memmap2::{MmapMut, MmapOptions};
+use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Return a value that is at least the given capacity, but ensures the block ends at a memory page
@@ -86,7 +86,7 @@ where
     ) -> Result<TemporaryBlockFile<B>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
-        let mmap = MmapOptions::new().stack().len(capacity).map_anon()?;
+        let mmap = create_mmap(capacity)?;
 
         Ok(TemporaryBlockFile {
             mmap,
@@ -257,7 +257,7 @@ where
         // Create a new anonymous memory mapped the content is copied to.
         // Allocate at least twice the old file size so we don't need to grow too often
         let new_size = requested_size.max(self.mmap.len() * 2);
-        let mut new_mmap = MmapOptions::new().stack().len(new_size).map_anon()?;
+        let mut new_mmap = create_mmap(new_size)?;
 
         // Copy all content from the old file into the new file
         new_mmap[0..self.mmap.len()].copy_from_slice(&self.mmap);
