@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backward incompatible**: The maximum order of a B-Tree (as per its configuration) is now
   84. This is necessary, so a node block always fits inside a memory block. You can configure
   a smaller size, but with 84 the memory page is utilized fully.
+- Instead of anonymous memory mapped files, we create our own temporary files. 
+  The former ones might only be written out to swap, which is a problem on
+  systems with small swap sizes.
 
 ### Fixed
 

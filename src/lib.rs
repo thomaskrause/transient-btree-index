@@ -55,5 +55,5 @@ fn create_mmap(capacity: usize) -> error::Result<MmapMut> {
 
     // Load this file as memory mapped file
     let mmap = unsafe { MmapMut::map_mut(&file)? };
-    return Ok(mmap);
+    Ok(mmap)
 }
