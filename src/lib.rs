@@ -42,11 +42,18 @@ mod file;
 
 pub use btree::{BtreeConfig, BtreeIndex};
 pub use error::Error;
+use memmap2::MmapMut;
 
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
 
-fn create_mmap(length: usize) -> error::Result<memmap2::MmapMut> {
-    let result = memmap2::MmapOptions::new().len(length).map_anon()?;
-    Ok(result)
+fn create_mmap(capacity: usize) -> error::Result<MmapMut> {
+    let file = tempfile::tempfile()?;
+    if capacity > 0 {
+        file.set_len(capacity.try_into()?)?;
+    }
+
+    // Load this file as memory mapped file
+    let mmap = unsafe { MmapMut::map_mut(&file)? };
+    return Ok(mmap);
 }
