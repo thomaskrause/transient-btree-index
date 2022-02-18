@@ -1,6 +1,6 @@
 [package]
 name = "transient-btree-index"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Thomas Krause <thomaskrause@posteo.de>"]
 license = "Apache-2.0"

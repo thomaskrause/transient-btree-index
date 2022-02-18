@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2022-02-18
+
 ### Changed
 
 - More efficient insert operation by not serializing a vector of keys for the whole node.
