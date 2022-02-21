@@ -1,11 +1,11 @@
 use crate::file::BlockHeader;
 
-use super::TemporaryBlockFile;
+use super::VariableSizeTupleFile;
 
 #[test]
 fn grow_mmap_from_zero_capacity() {
     // Create file with empty capacity
-    let mut m = TemporaryBlockFile::<u64>::with_capacity(0, 0).unwrap();
+    let mut m = VariableSizeTupleFile::<u64>::with_capacity(0, 0).unwrap();
     // The capacity must be at least one
     assert_eq!(1, m.mmap.len());
 
@@ -30,7 +30,7 @@ fn grow_mmap_from_zero_capacity() {
 
 #[test]
 fn grow_mmap_with_capacity() {
-    let mut m = TemporaryBlockFile::<u64>::with_capacity(4096, 0).unwrap();
+    let mut m = VariableSizeTupleFile::<u64>::with_capacity(4096, 0).unwrap();
     assert_eq!(4096, m.mmap.len());
 
     // Don't grow if not necessary
@@ -50,7 +50,7 @@ fn grow_mmap_with_capacity() {
 
 #[test]
 fn block_insert_get_update() {
-    let mut m = TemporaryBlockFile::<Vec<u64>>::with_capacity(128, 0).unwrap();
+    let mut m = VariableSizeTupleFile::<Vec<u64>>::with_capacity(128, 0).unwrap();
     assert_eq!(128, m.mmap.len());
 
     let mut b: Vec<u64> = std::iter::repeat(42).take(10).collect();
