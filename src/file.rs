@@ -1,12 +1,14 @@
 use std::{
     collections::HashMap,
     io::Write,
+    marker::PhantomData,
     mem::size_of,
     sync::{Arc, Mutex},
 };
 
 use crate::{create_mmap, error::Result, PAGE_SIZE};
 use bincode::Options;
+use generic_array::{ArrayLength, GenericArray};
 use linked_hash_map::LinkedHashMap;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
@@ -62,7 +64,7 @@ impl BlockHeader {
 /// Represents a temporary memory mapped file that can store and retrieve blocks of type `B`.
 ///
 /// Blocks will be (de-) serializable with the Serde crate.
-pub struct TemporaryBlockFile<B> {
+pub struct VariableSizeTupleFile<B> {
     free_space_offset: usize,
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
@@ -71,7 +73,7 @@ pub struct TemporaryBlockFile<B> {
     block_cache_size: usize,
 }
 
-impl<B> TemporaryBlockFile<B>
+impl<B> VariableSizeTupleFile<B>
 where
     B: Serialize + DeserializeOwned + Clone,
 {
@@ -83,12 +85,12 @@ where
     pub fn with_capacity(
         capacity: usize,
         block_cache_size: usize,
-    ) -> Result<TemporaryBlockFile<B>> {
+    ) -> Result<VariableSizeTupleFile<B>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = create_mmap(capacity)?;
 
-        Ok(TemporaryBlockFile {
+        Ok(VariableSizeTupleFile {
             mmap,
             free_space_offset: 0,
             relocated_blocks: HashMap::default(),
@@ -265,6 +267,16 @@ where
         self.mmap = new_mmap;
         Ok(())
     }
+}
+
+pub struct FixedSizeTupleFile<B, N>
+where
+    B: Into<GenericArray<u8, N>> +  From<GenericArray<u8, N>>,
+    N: ArrayLength<u8>,
+{
+    free_space_offset: usize,
+    mmap: MmapMut,
+    phantom: PhantomData<(B, N)>,
 }
 
 #[cfg(test)]

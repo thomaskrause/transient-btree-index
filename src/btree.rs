@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     error::Result,
-    file::{BlockHeader, TemporaryBlockFile},
+    file::{BlockHeader, VariableSizeTupleFile},
     Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -28,7 +28,7 @@ where
     V: Serialize + DeserializeOwned + Clone,
 {
     nodes: node::NodeFile<K>,
-    values: TemporaryBlockFile<V>,
+    values: VariableSizeTupleFile<V>,
     root_id: u64,
     last_inserted_node_id: u64,
     order: usize,
@@ -109,7 +109,7 @@ where
 
         let mut nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
 
-        let values = TemporaryBlockFile::with_capacity(
+        let values = VariableSizeTupleFile::with_capacity(
             (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
@@ -329,7 +329,7 @@ pub struct Range<'a, K, V> {
     start: Bound<K>,
     end: Bound<K>,
     nodes: &'a NodeFile<K>,
-    values: &'a TemporaryBlockFile<V>,
+    values: &'a VariableSizeTupleFile<V>,
     stack: Vec<node::StackEntry>,
     phantom: PhantomData<V>,
 }

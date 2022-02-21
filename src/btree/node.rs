@@ -3,7 +3,7 @@ use std::ops::{Bound, RangeBounds};
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::file::{BlockHeader, TemporaryBlockFile};
+use crate::file::{BlockHeader, VariableSizeTupleFile};
 use crate::{create_mmap, BtreeConfig, Error};
 use binary_layout::prelude::*;
 use memmap2::MmapMut;
@@ -30,7 +30,7 @@ define_layout!(node, LittleEndian, {
 pub struct NodeFile<K> {
     free_space_offset: usize,
     mmap: MmapMut,
-    keys: TemporaryBlockFile<K>,
+    keys: VariableSizeTupleFile<K>,
 }
 
 pub enum SearchResult {
@@ -55,7 +55,7 @@ where
 
         // Each node can hold 1361 keys, so we need the space for them as well
         let number_of_keys = capacity * 1361;
-        let keys = TemporaryBlockFile::with_capacity(
+        let keys = VariableSizeTupleFile::with_capacity(
             (number_of_keys * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
