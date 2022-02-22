@@ -107,15 +107,20 @@ impl Into<GenericArray<u8, U8>> for TestInt {
     }
 }
 
+#[test]
 fn block_insert_get_update_fixed_size() {
     let mut m = FixedSizeTupleFile::<TestInt, U8>::with_capacity(128).unwrap();
     assert_eq!(128, m.mmap.len());
 
+    // Check that we can't allocate block with a size different to 8
+    assert!(m.allocate_block(4).is_err());
+    assert!(m.allocate_block(16).is_err());
+
     let b = TestInt(42);
-    let idx = m.allocate_block().unwrap();
+    let idx = m.allocate_block(8).unwrap();
 
     // Insert the block as it is
-    m.put(idx, b).unwrap();
+    m.put(idx, &b).unwrap();
 
     // Get the block and check the new value is returned
     assert_eq!(b, m.get_owned(idx).unwrap());
