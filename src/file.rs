@@ -23,6 +23,29 @@ pub fn page_aligned_capacity(capacity: usize) -> usize {
     (num_full_pages * PAGE_SIZE) - BlockHeader::size()
 }
 
+pub trait TupleFile<B> {
+    /// Allocate a new block with the given capacity.
+    ///
+    /// Returns the ID of the new block.
+    fn allocate_block(&mut self, capacity: usize) -> Result<usize>;
+
+    /// Get a block with the given id give ownership of the result to the caller.
+    fn get_owned(&self, block_id: usize) -> Result<B>;
+
+    fn get(&self, block_id: usize) -> Result<Arc<B>>;
+
+    /// Set the content of a block with the given id.
+    ///
+    /// If the block needs more space than was originally allocated, a new block is allocated
+    /// and the redirection is saved in an in-memory hash map.
+    /// The old block will remain empty. So try to avoid writing any
+    /// blocks with a larger size than originally allocated.
+    fn put(&mut self, block_id: usize, block: &B) -> Result<()>;
+
+    /// Get the number of bytes necessary to store the given block.
+    fn serialized_size(&self, block: &B) -> Result<u64>;
+}
+
 /// Representation of a header at the start of each block.
 ///
 /// When allocating new blocks, the size of this header is not included.
@@ -71,6 +94,96 @@ pub struct VariableSizeTupleFile<B> {
     serializer: bincode::DefaultOptions,
     cache: Arc<Mutex<LinkedHashMap<usize, Arc<B>>>>,
     block_cache_size: usize,
+}
+
+impl<B> TupleFile<B> for VariableSizeTupleFile<B>
+where
+    B: Serialize + DeserializeOwned + Clone,
+{
+    fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
+        // Make sure we still have enough space left
+        let new_offset = self.free_space_offset + BlockHeader::size() + capacity;
+        self.grow(new_offset)?;
+
+        // Return the old start of free space as block index
+        let result = self.free_space_offset;
+
+        // Write the block header to the file
+        let header = BlockHeader {
+            capacity: capacity.try_into()?,
+            used: 0,
+        };
+        header.write(&mut self.mmap[result..(result + BlockHeader::size())])?;
+
+        // The next free block can be added after this block
+        self.free_space_offset = new_offset;
+        Ok(result)
+    }
+
+    fn get_owned(&self, block_id: usize) -> Result<B> {
+        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
+        if let Some(b) = self.get_cached_entry(block_id) {
+            Ok(b.as_ref().clone())
+        } else {
+            let result = self.read_block(block_id)?;
+            Ok(result)
+        }
+    }
+
+    fn get(&self, block_id: usize) -> Result<Arc<B>> {
+        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
+        if let Some(b) = self.get_cached_entry(block_id) {
+            Ok(b)
+        } else {
+            let result = self.read_block(block_id)?;
+            Ok(Arc::new(result))
+        }
+    }
+
+    fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
+        let relocated_block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
+
+        // Check there is still enough space in the block
+        let (update_fits, new_used_size) = self.can_update(relocated_block_id, block)?;
+        let block_id = if update_fits {
+            relocated_block_id
+        } else {
+            // Relocate (possible again) to a new block with double the size
+            let new_used_size: usize = new_used_size.try_into()?;
+            let new_block_id = self.allocate_block(page_aligned_capacity(new_used_size * 2))?;
+            self.relocated_blocks.insert(block_id, new_block_id);
+            new_block_id
+        };
+
+        // Update the header with the new size
+        let mut header = self.block_header(block_id)?;
+        header.used = new_used_size;
+        header.write(&mut self.mmap[block_id..(block_id + BlockHeader::size())])?;
+
+        // Serialize the block and write it at the proper location in the file
+        let block_size: usize = header.capacity.try_into()?;
+        let block_start = block_id + BlockHeader::size();
+        let block_end = block_start + block_size;
+        self.serializer
+            .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
+
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(block_id, Arc::new(block.clone()));
+            // Remove the oldest entry when capacity is reached
+            if cache.len() > self.block_cache_size {
+                cache.pop_front();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn serialized_size(&self, block: &B) -> Result<u64> {
+        let new_size = self.serializer.serialized_size(&block)?;
+        Ok(new_size)
+    }
 }
 
 impl<B> VariableSizeTupleFile<B>
@@ -124,29 +237,6 @@ where
         None
     }
 
-    /// Get a block with the given id give ownership of the result to the caller.
-    pub fn get_owned(&self, block_id: usize) -> Result<B> {
-        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
-
-        if let Some(b) = self.get_cached_entry(block_id) {
-            Ok(b.as_ref().clone())
-        } else {
-            let result = self.read_block(block_id)?;
-            Ok(result)
-        }
-    }
-
-    pub fn get(&self, block_id: usize) -> Result<Arc<B>> {
-        let block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
-
-        if let Some(b) = self.get_cached_entry(block_id) {
-            Ok(b)
-        } else {
-            let result = self.read_block(block_id)?;
-            Ok(Arc::new(result))
-        }
-    }
-
     /// Determines wether a given block would still fit in the originally allocated space.
     ///
     /// Returns a tuple with the first value beeing true when the update fits.
@@ -163,80 +253,6 @@ where
         } else {
             (false, new_size)
         };
-        Ok(result)
-    }
-
-    /// Get the number of bytes necessary to store the given block.
-    ///
-    pub fn serialized_size(&self, block: &B) -> Result<u64> {
-        let new_size = self.serializer.serialized_size(&block)?;
-        Ok(new_size)
-    }
-
-    /// Set the content of a block with the given id.
-    ///
-    /// If the block needs more space than was originally allocated, a new block is allocated
-    /// and the redirection is saved in an in-memory hash map.
-    /// The old block will remain empty. So try to avoid writing any
-    /// blocks with a larger size than originally allocated.
-    pub fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
-        let relocated_block_id = *self.relocated_blocks.get(&block_id).unwrap_or(&block_id);
-
-        // Check there is still enough space in the block
-        let (update_fits, new_used_size) = self.can_update(relocated_block_id, block)?;
-        let block_id = if update_fits {
-            relocated_block_id
-        } else {
-            // Relocate (possible again) to a new block with double the size
-            let new_used_size: usize = new_used_size.try_into()?;
-            let new_block_id = self.allocate_block(page_aligned_capacity(new_used_size * 2))?;
-            self.relocated_blocks.insert(block_id, new_block_id);
-            new_block_id
-        };
-
-        // Update the header with the new size
-        let mut header = self.block_header(block_id)?;
-        header.used = new_used_size;
-        header.write(&mut self.mmap[block_id..(block_id + BlockHeader::size())])?;
-
-        // Serialize the block and write it at the proper location in the file
-        let block_size: usize = header.capacity.try_into()?;
-        let block_start = block_id + BlockHeader::size();
-        let block_end = block_start + block_size;
-        self.serializer
-            .serialize_into(&mut self.mmap[block_start..block_end], &block)?;
-
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.insert(block_id, Arc::new(block.clone()));
-            // Remove the oldest entry when capacity is reached
-            if cache.len() > self.block_cache_size {
-                cache.pop_front();
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Allocate a new block with the given capacity.
-    ///
-    /// Returns the ID of the new block.
-    pub fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
-        // Make sure we still have enough space left
-        let new_offset = self.free_space_offset + BlockHeader::size() + capacity;
-        self.grow(new_offset)?;
-
-        // Return the old start of free space as block index
-        let result = self.free_space_offset;
-
-        // Write the block header to the file
-        let header = BlockHeader {
-            capacity: capacity.try_into()?,
-            used: 0,
-        };
-        header.write(&mut self.mmap[result..(result + BlockHeader::size())])?;
-
-        // The next free block can be added after this block
-        self.free_space_offset = new_offset;
         Ok(result)
     }
 

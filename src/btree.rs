@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     error::Result,
-    file::{BlockHeader, VariableSizeTupleFile},
+    file::{BlockHeader, TupleFile, VariableSizeTupleFile},
     Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -27,7 +27,7 @@ where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
     V: Serialize + DeserializeOwned + Clone,
 {
-    nodes: node::NodeFile<K>,
+    nodes: node::NodeFile<K, VariableSizeTupleFile<K>>,
     values: VariableSizeTupleFile<V>,
     root_id: u64,
     last_inserted_node_id: u64,
@@ -325,10 +325,13 @@ where
     }
 }
 
-pub struct Range<'a, K, V> {
+pub struct Range<'a, K, V>
+where
+    K: Serialize + DeserializeOwned + Clone,
+{
     start: Bound<K>,
     end: Bound<K>,
-    nodes: &'a NodeFile<K>,
+    nodes: &'a NodeFile<K, VariableSizeTupleFile<K>>,
     values: &'a VariableSizeTupleFile<V>,
     stack: Vec<node::StackEntry>,
     phantom: PhantomData<V>,
