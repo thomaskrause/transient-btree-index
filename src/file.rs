@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{create_mmap, error::Result, serializer::FixedSizeTupleSerializer, PAGE_SIZE};
+use crate::{create_mmap, error::Result, PAGE_SIZE};
 use bincode::Options;
 use generic_array::{ArrayLength, GenericArray};
 use linked_hash_map::LinkedHashMap;
@@ -269,7 +269,10 @@ where
     }
 }
 
-pub struct FixedSizeTupleFile<B, N> {
+pub struct FixedSizeTupleFile<B, N>
+where
+    N: ArrayLength<u8>,
+{
     free_space_offset: usize,
     mmap: MmapMut,
     phantom: PhantomData<(B, N)>,
@@ -277,7 +280,7 @@ pub struct FixedSizeTupleFile<B, N> {
 
 impl<B, N> FixedSizeTupleFile<B, N>
 where
-    B: FixedSizeTupleSerializer<N>,
+    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
     N: ArrayLength<u8>,
 {
     /// Create a new file with the given capacity.
@@ -332,14 +335,14 @@ where
         Ok(result)
     }
 
-    /// Set the content of a block with the given id.
+    /// Set the content of a block with the given i Fd.
     pub fn put(&mut self, block_id: usize, block: B) -> Result<()> {
         // Serialize the block and write it at the proper location in the file
         let block_size: usize = N::to_usize();
         let block_start = block_id;
         let block_end = block_start + block_size;
 
-        let block_as_bytes: GenericArray<u8, N> = block.to_byte_array();
+        let block_as_bytes: GenericArray<u8, N> = block.into();
 
         self.mmap[block_start..block_end].copy_from_slice(&block_as_bytes);
         Ok(())
@@ -364,7 +367,7 @@ where
         let data: GenericArray<u8, N> =
             GenericArray::clone_from_slice(&self.mmap[block_start..block_end]);
 
-        let block: B = B::from_byte_array(data);
+        let block: B = data.into();
 
         Ok(block)
     }

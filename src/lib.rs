@@ -36,11 +36,9 @@
 //!     Ok(())
 //! }
 //! ```
-
 mod btree;
 mod error;
 mod file;
-mod serializer;
 
 pub use btree::{BtreeConfig, BtreeIndex};
 pub use error::Error;
