@@ -1,6 +1,5 @@
-use crate::file::BlockHeader;
-
 use super::VariableSizeTupleFile;
+use crate::file::{BlockHeader, FixedSizeTupleFile};
 
 #[test]
 fn grow_mmap_from_zero_capacity() {
@@ -87,4 +86,18 @@ fn block_insert_get_update() {
     assert_eq!(true, m.relocated_blocks.contains_key(&idx));
     // Get the block and check the new value is returned
     assert_eq!(large_block, m.get_owned(idx).unwrap());
+}
+
+fn block_insert_get_update_fixed_size() {
+    let mut m = FixedSizeTupleFile::<u64, generic_array::typenum::U8>::with_capacity(128).unwrap();
+    assert_eq!(128, m.mmap.len());
+
+    let b = 42;
+    let idx = m.allocate_block().unwrap();
+
+    // Insert the block as it is
+    m.put(idx, b).unwrap();
+
+    // Get the block and check the new value is returned
+    assert_eq!(b, m.get_owned(idx).unwrap());
 }
