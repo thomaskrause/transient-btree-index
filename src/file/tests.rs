@@ -1,7 +1,7 @@
-use generic_array::{GenericArray, typenum::U8};
+use generic_array::{typenum::U8, GenericArray};
 
 use super::VariableSizeTupleFile;
-use crate::file::{BlockHeader, FixedSizeTupleFile};
+use crate::file::{BlockHeader, FixedSizeTupleFile, TupleFile};
 
 #[test]
 fn grow_mmap_from_zero_capacity() {
@@ -90,16 +90,15 @@ fn block_insert_get_update() {
     assert_eq!(large_block, m.get_owned(idx).unwrap());
 }
 
-#[derive(PartialEq, Debug, Clone,Copy)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct TestInt(u64);
 
 impl From<GenericArray<u8, U8>> for TestInt {
     fn from(data: GenericArray<u8, U8>) -> Self {
-        let v= u64::from_le_bytes(data.into());
+        let v = u64::from_le_bytes(data.into());
         TestInt(v)
     }
 }
-
 
 impl Into<GenericArray<u8, U8>> for TestInt {
     fn into(self) -> GenericArray<u8, U8> {
@@ -107,7 +106,6 @@ impl Into<GenericArray<u8, U8>> for TestInt {
         GenericArray::clone_from_slice(&d[0..8])
     }
 }
-
 
 fn block_insert_get_update_fixed_size() {
     let mut m = FixedSizeTupleFile::<TestInt, U8>::with_capacity(128).unwrap();

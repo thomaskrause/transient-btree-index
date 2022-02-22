@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn allocate_nodes() {
-    let mut f: NodeFile<u64> = NodeFile::with_capacity(0, &BtreeConfig::default()).unwrap();
+    let mut f: NodeFile<u64, _> = NodeFile::with_capacity(0, &BtreeConfig::default()).unwrap();
     let n1 = f.allocate_new_node().unwrap();
     let n2 = f.allocate_new_node().unwrap();
     let n3 = f.allocate_new_node().unwrap();

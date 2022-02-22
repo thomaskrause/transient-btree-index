@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 use std::ops::{Bound, RangeBounds};
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::file::{BlockHeader, VariableSizeTupleFile};
+use crate::file::{BlockHeader, TupleFile, VariableSizeTupleFile};
 use crate::{create_mmap, BtreeConfig, Error};
 use binary_layout::prelude::*;
 use memmap2::MmapMut;
@@ -27,10 +28,14 @@ define_layout!(node, LittleEndian, {
     child_nodes: [u8; MAX_NUMBER_CHILD_NODES*8],
 });
 
-pub struct NodeFile<K> {
+pub struct NodeFile<K, F>
+where
+    F: TupleFile<K>,
+{
     free_space_offset: usize,
     mmap: MmapMut,
-    keys: VariableSizeTupleFile<K>,
+    keys: F,
+    phantom: PhantomData<K>,
 }
 
 pub enum SearchResult {
@@ -44,11 +49,14 @@ pub enum StackEntry {
     Key { node: u64, idx: usize },
 }
 
-impl<K> NodeFile<K>
+impl<K> NodeFile<K, VariableSizeTupleFile<K>>
 where
     K: Serialize + DeserializeOwned + Clone + Ord,
 {
-    pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<K>> {
+    pub fn with_capacity(
+        capacity: usize,
+        config: &BtreeConfig,
+    ) -> Result<NodeFile<K, VariableSizeTupleFile<K>>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
@@ -64,9 +72,16 @@ where
             mmap,
             keys,
             free_space_offset: 0,
+            phantom: PhantomData,
         })
     }
+}
 
+impl<K, F> NodeFile<K, F>
+where
+    K: Serialize + DeserializeOwned + Clone + Ord,
+    F: TupleFile<K>,
+{
     /// Allocate a new node.
     ///
     /// Returns the ID of the new node.
