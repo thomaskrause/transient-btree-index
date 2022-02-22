@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{create_mmap, error::Result, PAGE_SIZE};
+use crate::{create_mmap, error::Result, Error, PAGE_SIZE};
 use bincode::Options;
 use generic_array::{ArrayLength, GenericArray};
 use linked_hash_map::LinkedHashMap;
@@ -294,6 +294,55 @@ where
     phantom: PhantomData<(B, N)>,
 }
 
+impl<B, N> TupleFile<B> for FixedSizeTupleFile<B, N>
+where
+    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Clone,
+    N: ArrayLength<u8>,
+{
+    fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
+        if capacity != N::to_usize() {
+            return Err(Error::InvalidCapacity { capacity });
+        }
+
+        // Make sure we still have enough space left in the file
+        let new_offset = self.free_space_offset + N::to_usize();
+        self.grow(new_offset)?;
+
+        // Return the old start of free space as block index
+        let result = self.free_space_offset;
+
+        // The next free block can be added after this block
+        self.free_space_offset = new_offset;
+        Ok(result)
+    }
+
+    fn get_owned(&self, block_id: usize) -> Result<B> {
+        let result = self.read_block(block_id)?;
+        Ok(result)
+    }
+
+    fn get(&self, block_id: usize) -> Result<Arc<B>> {
+        let result = self.read_block(block_id)?;
+        Ok(Arc::new(result))
+    }
+
+    fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
+        // Serialize the block and write it at the proper location in the file
+        let block_size: usize = N::to_usize();
+        let block_start = block_id;
+        let block_end = block_start + block_size;
+
+        let block_as_bytes: GenericArray<u8, N> = block.clone().into();
+
+        self.mmap[block_start..block_end].copy_from_slice(&block_as_bytes);
+        Ok(())
+    }
+
+    fn serialized_size(&self, _block: &B) -> Result<u64> {
+        Ok(N::to_u64())
+    }
+}
+
 impl<B, N> FixedSizeTupleFile<B, N>
 where
     B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
@@ -306,7 +355,7 @@ where
     pub fn with_capacity(capacity: usize) -> Result<FixedSizeTupleFile<B, N>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
-        let mmap = create_mmap(capacity * N::to_usize())?;
+        let mmap = create_mmap(capacity)?;
         Ok(FixedSizeTupleFile {
             mmap,
             free_space_offset: 0,
@@ -333,46 +382,6 @@ where
 
         self.mmap = new_mmap;
         Ok(())
-    }
-
-    /// Allocate a new block.
-    ///
-    /// Returns the ID of the new block.
-    pub fn allocate_block(&mut self) -> Result<usize> {
-        // Make sure we still have enough space left in the file
-        let new_offset = self.free_space_offset + N::to_usize();
-        self.grow(new_offset)?;
-
-        // Return the old start of free space as block index
-        let result = self.free_space_offset;
-
-        // The next free block can be added after this block
-        self.free_space_offset = new_offset;
-        Ok(result)
-    }
-
-    /// Set the content of a block with the given i Fd.
-    pub fn put(&mut self, block_id: usize, block: B) -> Result<()> {
-        // Serialize the block and write it at the proper location in the file
-        let block_size: usize = N::to_usize();
-        let block_start = block_id;
-        let block_end = block_start + block_size;
-
-        let block_as_bytes: GenericArray<u8, N> = block.into();
-
-        self.mmap[block_start..block_end].copy_from_slice(&block_as_bytes);
-        Ok(())
-    }
-
-    /// Get a block with the given id give ownership of the result to the caller.
-    pub fn get_owned(&self, block_id: usize) -> Result<B> {
-        let result = self.read_block(block_id)?;
-        Ok(result)
-    }
-
-    pub fn get(&self, block_id: usize) -> Result<Arc<B>> {
-        let result = self.read_block(block_id)?;
-        Ok(Arc::new(result))
     }
 
     fn read_block(&self, block_id: usize) -> Result<B> {

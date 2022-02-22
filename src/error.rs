@@ -19,6 +19,8 @@ pub enum Error {
     InsertFoundInternalNode,
     #[error("Splitting a node resulted in an empty child node.")]
     EmptyChildNodeInSplit,
+    #[error("The given capacity of {capacity} was invalid.")]
+    InvalidCapacity { capacity: usize },
     #[error(transparent)]
     IO(#[from] std::io::Error),
     #[error(transparent)]
