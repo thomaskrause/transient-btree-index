@@ -1,3 +1,5 @@
+use generic_array::{GenericArray, typenum::U8};
+
 use super::VariableSizeTupleFile;
 use crate::file::{BlockHeader, FixedSizeTupleFile};
 
@@ -88,11 +90,30 @@ fn block_insert_get_update() {
     assert_eq!(large_block, m.get_owned(idx).unwrap());
 }
 
+#[derive(PartialEq, Debug, Clone,Copy)]
+pub struct TestInt(u64);
+
+impl From<GenericArray<u8, U8>> for TestInt {
+    fn from(data: GenericArray<u8, U8>) -> Self {
+        let v= u64::from_le_bytes(data.into());
+        TestInt(v)
+    }
+}
+
+
+impl Into<GenericArray<u8, U8>> for TestInt {
+    fn into(self) -> GenericArray<u8, U8> {
+        let d = self.0.to_le_bytes();
+        GenericArray::clone_from_slice(&d[0..8])
+    }
+}
+
+
 fn block_insert_get_update_fixed_size() {
-    let mut m = FixedSizeTupleFile::<u64, generic_array::typenum::U8>::with_capacity(128).unwrap();
+    let mut m = FixedSizeTupleFile::<TestInt, U8>::with_capacity(128).unwrap();
     assert_eq!(128, m.mmap.len());
 
-    let b = 42;
+    let b = TestInt(42);
     let idx = m.allocate_block().unwrap();
 
     // Insert the block as it is
