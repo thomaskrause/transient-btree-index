@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
-use std::marker::PhantomData;
 use std::ops::{Bound, RangeBounds};
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::file::{BlockHeader, TupleFile, VariableSizeTupleFile};
+use crate::file::{BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile};
 use crate::{create_mmap, BtreeConfig, Error};
 use binary_layout::prelude::*;
+use generic_array::{ArrayLength, GenericArray};
 use memmap2::MmapMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -18,7 +18,6 @@ pub const MAX_NUMBER_KEYS: usize = 169;
 const MAX_NUMBER_CHILD_NODES: usize = MAX_NUMBER_KEYS + 1;
 
 // Defines a single BTree node with references to the actual values in a tuple file
-// This node can up to 1361 keys and 1362 child node references.
 define_layout!(node, LittleEndian, {
     id: u64,
     num_keys: u64,
@@ -32,7 +31,6 @@ pub struct NodeFile<'a, K> {
     free_space_offset: usize,
     mmap: MmapMut,
     keys: Box<dyn TupleFile<K> + 'a>,
-    phantom: PhantomData<K>,
 }
 
 pub enum SearchResult {
@@ -50,15 +48,38 @@ impl<'a, K> NodeFile<'a, K>
 where
     K: 'a + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
+    pub fn fixed_size_with_capacity<N>(capacity: usize) -> Result<NodeFile<'a, K>>
+    where
+        N: ArrayLength<u8> + Sync,
+        K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+    {
+        // Create an anonymous memory mapped file with the capacity as size
+        let capacity = capacity.max(1);
+        let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
+
+        let keys = FixedSizeTupleFile::with_capacity(
+            (capacity * MAX_NUMBER_KEYS * N::to_usize()) + BlockHeader::size(),
+        )?;
+
+        Ok(NodeFile {
+            mmap,
+            keys: Box::new(keys),
+            free_space_offset: 0,
+        })
+    }
+}
+
+impl<'a, K> NodeFile<'a, K>
+where
+    K: 'a + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
+{
     pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<'a, K>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
 
-        // Each node can hold 1361 keys, so we need the space for them as well
-        let number_of_keys = capacity * 1361;
         let keys = VariableSizeTupleFile::with_capacity(
-            (number_of_keys * config.est_max_value_size) + BlockHeader::size(),
+            (capacity * MAX_NUMBER_KEYS * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
 
@@ -66,7 +87,6 @@ where
             mmap,
             keys: Box::new(keys),
             free_space_offset: 0,
-            phantom: PhantomData,
         })
     }
 }
