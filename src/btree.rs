@@ -8,6 +8,7 @@ use crate::{
     file::{BlockHeader, TupleFile, VariableSizeTupleFile},
     Error,
 };
+use generic_array::{ArrayLength, GenericArray};
 use serde::{de::DeserializeOwned, Serialize};
 
 use self::node::{NodeFile, SearchResult, StackEntry, MAX_NUMBER_KEYS};
@@ -98,6 +99,49 @@ where
     K: 'a + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
     V: 'a + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
+}
+
+impl<'a, K, V> BtreeIndex<'a, K, V>
+where
+    K: 'a + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
+    V: 'a + Serialize + DeserializeOwned + Clone + Send + Sync,
+{
+    /// Create a new instance with the given configuration and capacity in number of elements.
+    pub fn fixed_key_size_with_capacity<N>(
+        config: BtreeConfig,
+        capacity: usize,
+    ) -> Result<BtreeIndex<'a, K, V>>
+    where
+        N: ArrayLength<u8> + Sync,
+        K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+    {
+        if config.order < 2 {
+            return Err(Error::OrderTooSmall(config.order));
+        } else if config.order > MAX_NUMBER_KEYS / 2 {
+            return Err(Error::OrderTooLarge(config.order));
+        }
+        let capacity_in_blocks = capacity / config.order;
+
+        let mut nodes = NodeFile::fixed_size_with_capacity(capacity / config.order)?;
+
+        let values = VariableSizeTupleFile::with_capacity(
+            (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
+            config.block_cache_size,
+        )?;
+
+        // Always add an empty root node
+        let root_id = nodes.allocate_new_node()?;
+
+        Ok(BtreeIndex {
+            root_id,
+            nodes,
+            values: Box::new(values),
+            order: config.order,
+            nr_elements: 0,
+            last_inserted_node_id: root_id,
+        })
+    }
+
     /// Create a new instance with the given configuration and capacity in number of elements.
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<'a, K, V>> {
         if config.order < 2 {
