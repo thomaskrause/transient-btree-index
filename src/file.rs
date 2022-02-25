@@ -23,9 +23,9 @@ pub fn page_aligned_capacity(capacity: usize) -> usize {
     (num_full_pages * PAGE_SIZE) - BlockHeader::size()
 }
 
-pub trait TupleFile<B>: Sync
+pub trait TupleFile<B>: Send + Sync
 where
-    B: Sync,
+    B: Send + Sync,
 {
     /// Allocate a new block with the given capacity to hold this many bytes of data.
     ///
@@ -306,8 +306,8 @@ where
 
 impl<B, N> TupleFile<B> for FixedSizeTupleFile<B, N>
 where
-    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Clone + Sync,
-    N: ArrayLength<u8> + Sync,
+    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Clone + Send + Sync,
+    N: ArrayLength<u8> + Send + Sync,
 {
     fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
         if capacity != N::to_usize() {

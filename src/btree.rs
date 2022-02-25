@@ -112,7 +112,7 @@ where
         capacity: usize,
     ) -> Result<BtreeIndex<K, V>>
     where
-        N: ArrayLength<u8> + Sync,
+        N: ArrayLength<u8> + Send + Sync,
         K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
     {
         if config.order < 2 {
