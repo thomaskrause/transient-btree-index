@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     error::Result,
-    file::{BlockHeader, TupleFile, VariableSizeTupleFile},
+    file::{BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile},
     Error,
 };
 use generic_array::{ArrayLength, GenericArray};
@@ -128,6 +128,39 @@ where
             (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
             config.block_cache_size,
         )?;
+
+        // Always add an empty root node
+        let root_id = nodes.allocate_new_node()?;
+
+        Ok(BtreeIndex {
+            root_id,
+            nodes,
+            values: Box::new(values),
+            order: config.order,
+            nr_elements: 0,
+            last_inserted_node_id: root_id,
+        })
+    }
+
+    /// Create a new instance with the given configuration and capacity in number of elements.
+    pub fn fixed_value_size_with_capacity<N>(
+        config: BtreeConfig,
+        capacity: usize,
+    ) -> Result<BtreeIndex<K, V>>
+    where
+        N: ArrayLength<u8> + Send + Sync,
+        V: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+    {
+        if config.order < 2 {
+            return Err(Error::OrderTooSmall(config.order));
+        } else if config.order > MAX_NUMBER_KEYS / 2 {
+            return Err(Error::OrderTooLarge(config.order));
+        }
+        let capacity_in_blocks = capacity / config.order;
+
+        let mut nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
+
+        let values = FixedSizeTupleFile::with_capacity(capacity_in_blocks * N::to_usize())?;
 
         // Always add an empty root node
         let root_id = nodes.allocate_new_node()?;
