@@ -28,13 +28,10 @@ define_layout!(node, LittleEndian, {
     child_nodes: [u8; MAX_NUMBER_CHILD_NODES*8],
 });
 
-pub struct NodeFile<K, F>
-where
-    F: TupleFile<K>,
-{
+pub struct NodeFile<'a, K> {
     free_space_offset: usize,
     mmap: MmapMut,
-    keys: F,
+    keys: Box<dyn TupleFile<K> + 'a>,
     phantom: PhantomData<K>,
 }
 
@@ -49,14 +46,11 @@ pub enum StackEntry {
     Key { node: u64, idx: usize },
 }
 
-impl<K> NodeFile<K, VariableSizeTupleFile<K>>
+impl<'a, K> NodeFile<'a, K>
 where
-    K: Serialize + DeserializeOwned + Clone + Ord,
+    K: 'a + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
-    pub fn with_capacity(
-        capacity: usize,
-        config: &BtreeConfig,
-    ) -> Result<NodeFile<K, VariableSizeTupleFile<K>>> {
+    pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<'a, K>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
@@ -70,17 +64,16 @@ where
 
         Ok(NodeFile {
             mmap,
-            keys,
+            keys: Box::new(keys),
             free_space_offset: 0,
             phantom: PhantomData,
         })
     }
 }
 
-impl<K, F> NodeFile<K, F>
+impl<'a, K> NodeFile<'a, K>
 where
-    K: Serialize + DeserializeOwned + Clone + Ord,
-    F: TupleFile<K>,
+    K: Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
     /// Allocate a new node.
     ///

@@ -22,13 +22,13 @@ mod node;
 ///
 /// Since serde is used to serialize the keys and values, the types need to implement the [`Serialize`] and [`DeserializeOwned`] traits.
 /// Also, only keys and values that implement [`Clone`] can be used.
-pub struct BtreeIndex<K, V>
+pub struct BtreeIndex<'a, K, V>
 where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
-    V: Serialize + DeserializeOwned + Clone,
+    V: Serialize + DeserializeOwned + Clone + Sync,
 {
-    nodes: node::NodeFile<K, VariableSizeTupleFile<K>>,
-    values: VariableSizeTupleFile<V>,
+    nodes: node::NodeFile<'a, K>,
+    values: Box<dyn TupleFile<V> + 'a>,
     root_id: u64,
     last_inserted_node_id: u64,
     order: usize,
@@ -93,13 +93,13 @@ impl BtreeConfig {
     }
 }
 
-impl<K, V> BtreeIndex<K, V>
+impl<'a, K, V> BtreeIndex<'a, K, V>
 where
-    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord,
-    V: Serialize + DeserializeOwned + Clone,
+    K: 'a + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
+    V: 'a + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
+    pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<'a, K, V>> {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
         } else if config.order > MAX_NUMBER_KEYS / 2 {
@@ -120,7 +120,7 @@ where
         Ok(BtreeIndex {
             root_id,
             nodes,
-            values,
+            values: Box::new(values),
             order: config.order,
             nr_elements: 0,
             last_inserted_node_id: root_id,
@@ -214,7 +214,7 @@ where
     ///     Ok(())
     /// }
     /// ```
-    pub fn range<R>(&self, range: R) -> Result<Range<K, V>>
+    pub fn range<R>(&'a self, range: R) -> Result<Range<'a, K, V>>
     where
         R: RangeBounds<K>,
     {
@@ -231,7 +231,7 @@ where
             start,
             end,
             nodes: &self.nodes,
-            values: &self.values,
+            values: self.values.as_ref(),
             phantom: PhantomData,
         };
         Ok(result)
@@ -328,19 +328,20 @@ where
 pub struct Range<'a, K, V>
 where
     K: Serialize + DeserializeOwned + Clone,
+    V: Sync,
 {
     start: Bound<K>,
     end: Bound<K>,
-    nodes: &'a NodeFile<K, VariableSizeTupleFile<K>>,
-    values: &'a VariableSizeTupleFile<V>,
+    nodes: &'a NodeFile<'a, K>,
+    values: &'a dyn TupleFile<V>,
     stack: Vec<node::StackEntry>,
     phantom: PhantomData<V>,
 }
 
 impl<'a, K, V> Range<'a, K, V>
 where
-    K: Clone + Serialize + DeserializeOwned + Ord,
-    V: Clone + Serialize + DeserializeOwned,
+    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    V: Clone + Serialize + DeserializeOwned + Send + Sync,
 {
     fn get_key_value_tuple(&self, node: u64, idx: usize) -> Result<(K, V)> {
         let payload_id = self.nodes.get_payload(node, idx)?;
@@ -352,8 +353,8 @@ where
 
 impl<'a, K, V> Iterator for Range<'a, K, V>
 where
-    K: Clone + Serialize + DeserializeOwned + Ord,
-    V: Clone + Serialize + DeserializeOwned,
+    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    V: Clone + Serialize + DeserializeOwned + Send + Sync,
 {
     type Item = Result<(K, V)>;
 

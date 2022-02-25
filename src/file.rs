@@ -23,7 +23,10 @@ pub fn page_aligned_capacity(capacity: usize) -> usize {
     (num_full_pages * PAGE_SIZE) - BlockHeader::size()
 }
 
-pub trait TupleFile<B> {
+pub trait TupleFile<B>: Sync
+where
+    B: Sync,
+{
     /// Allocate a new block with the given capacity.
     ///
     /// Returns the ID of the new block.
@@ -87,7 +90,10 @@ impl BlockHeader {
 /// Represents a temporary memory mapped file that can store and retrieve blocks of type `B`.
 ///
 /// Blocks will be (de-) serializable with the Serde crate.
-pub struct VariableSizeTupleFile<B> {
+pub struct VariableSizeTupleFile<B>
+where
+    B: Sync,
+{
     free_space_offset: usize,
     mmap: MmapMut,
     relocated_blocks: HashMap<usize, usize>,
@@ -98,7 +104,7 @@ pub struct VariableSizeTupleFile<B> {
 
 impl<B> TupleFile<B> for VariableSizeTupleFile<B>
 where
-    B: Serialize + DeserializeOwned + Clone,
+    B: Send + Sync + Serialize + DeserializeOwned + Clone,
 {
     fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
         // Make sure we still have enough space left
@@ -188,7 +194,7 @@ where
 
 impl<B> VariableSizeTupleFile<B>
 where
-    B: Serialize + DeserializeOwned + Clone,
+    B: Serialize + DeserializeOwned + Clone + Sync + Send + Sync,
 {
     /// Create a new file with the given capacity.
     ///
@@ -288,6 +294,7 @@ where
 pub struct FixedSizeTupleFile<B, N>
 where
     N: ArrayLength<u8>,
+    B: Sync,
 {
     free_space_offset: usize,
     mmap: MmapMut,
@@ -296,8 +303,8 @@ where
 
 impl<B, N> TupleFile<B> for FixedSizeTupleFile<B, N>
 where
-    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Clone,
-    N: ArrayLength<u8>,
+    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Clone + Sync,
+    N: ArrayLength<u8> + Sync,
 {
     fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
         if capacity != N::to_usize() {
@@ -345,7 +352,7 @@ where
 
 impl<B, N> FixedSizeTupleFile<B, N>
 where
-    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Sync,
     N: ArrayLength<u8>,
 {
     /// Create a new file with the given capacity.
