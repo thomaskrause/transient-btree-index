@@ -9,8 +9,8 @@ use super::*;
 
 fn print_tree<K, V>(t: &BtreeIndex<K, V>) -> Result<()>
 where
-    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
-    V: Serialize + DeserializeOwned + Clone,
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync,
 {
     let mut b = TreeBuilder::new();
 
@@ -22,8 +22,8 @@ where
 
 fn print_tree_node<K, V>(builder: &mut TreeBuilder, t: &BtreeIndex<K, V>, node: u64) -> Result<()>
 where
-    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
-    V: Serialize + DeserializeOwned + Clone,
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync,
+    V: Serialize + DeserializeOwned + Clone + Sync,
 {
     let mut branch = builder.add_branch(&format!(
         "(node {} with {} keys and {} children)",
@@ -70,8 +70,8 @@ where
 
 fn check_order<K, V, R>(t: &BtreeIndex<K, V>, range: R)
 where
-    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug,
-    V: Serialize + DeserializeOwned + Clone,
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync,
     R: RangeBounds<K>,
 {
     let mut previous: Option<K> = None;
