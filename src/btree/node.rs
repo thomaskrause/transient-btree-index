@@ -27,10 +27,10 @@ define_layout!(node, LittleEndian, {
     child_nodes: [u8; MAX_NUMBER_CHILD_NODES*8],
 });
 
-pub struct NodeFile<'a, K> {
+pub struct NodeFile<K> {
     free_space_offset: usize,
     mmap: MmapMut,
-    keys: Box<dyn TupleFile<K> + 'a>,
+    keys: Box<dyn TupleFile<K>>,
 }
 
 pub enum SearchResult {
@@ -44,11 +44,11 @@ pub enum StackEntry {
     Key { node: u64, idx: usize },
 }
 
-impl<'a, K> NodeFile<'a, K>
+impl<K> NodeFile<K>
 where
-    K: 'a + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
+    K: 'static + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
-    pub fn fixed_size_with_capacity<N>(capacity: usize) -> Result<NodeFile<'a, K>>
+    pub fn fixed_size_with_capacity<N>(capacity: usize) -> Result<NodeFile<K>>
     where
         N: ArrayLength<u8> + Sync,
         K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
@@ -69,11 +69,11 @@ where
     }
 }
 
-impl<'a, K> NodeFile<'a, K>
+impl<K> NodeFile<K>
 where
-    K: 'a + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
+    K: 'static + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
-    pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<'a, K>> {
+    pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<K>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
@@ -91,7 +91,7 @@ where
     }
 }
 
-impl<'a, K> NodeFile<'a, K>
+impl<'a, K> NodeFile<K>
 where
     K: Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {

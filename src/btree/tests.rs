@@ -70,8 +70,8 @@ where
 
 fn check_order<K, V, R>(t: &BtreeIndex<K, V>, range: R)
 where
-    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync,
-    V: Serialize + DeserializeOwned + Clone + Send + Sync,
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     R: RangeBounds<K>,
 {
     let mut previous: Option<K> = None;

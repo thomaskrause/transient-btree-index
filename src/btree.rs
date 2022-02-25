@@ -23,13 +23,13 @@ mod node;
 ///
 /// Since serde is used to serialize the keys and values, the types need to implement the [`Serialize`] and [`DeserializeOwned`] traits.
 /// Also, only keys and values that implement [`Clone`] can be used.
-pub struct BtreeIndex<'a, K, V>
+pub struct BtreeIndex<K, V>
 where
     K: Serialize + DeserializeOwned + PartialOrd + Clone,
     V: Serialize + DeserializeOwned + Clone + Sync,
 {
-    nodes: node::NodeFile<'a, K>,
-    values: Box<dyn TupleFile<V> + 'a>,
+    nodes: node::NodeFile<K>,
+    values: Box<dyn TupleFile<V>>,
     root_id: u64,
     last_inserted_node_id: u64,
     order: usize,
@@ -94,23 +94,23 @@ impl BtreeConfig {
     }
 }
 
-impl<'a, K, V> BtreeIndex<'a, K, V>
+impl<'a, K, V> BtreeIndex<K, V>
 where
     K: 'a + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
     V: 'a + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
 }
 
-impl<'a, K, V> BtreeIndex<'a, K, V>
+impl<K, V> BtreeIndex<K, V>
 where
-    K: 'a + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
-    V: 'a + Serialize + DeserializeOwned + Clone + Send + Sync,
+    K: 'static + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
+    V: 'static + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
     pub fn fixed_key_size_with_capacity<N>(
         config: BtreeConfig,
         capacity: usize,
-    ) -> Result<BtreeIndex<'a, K, V>>
+    ) -> Result<BtreeIndex<K, V>>
     where
         N: ArrayLength<u8> + Sync,
         K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
@@ -143,7 +143,7 @@ where
     }
 
     /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<'a, K, V>> {
+    pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
         } else if config.order > MAX_NUMBER_KEYS / 2 {
@@ -258,7 +258,7 @@ where
     ///     Ok(())
     /// }
     /// ```
-    pub fn range<R>(&'a self, range: R) -> Result<Range<'a, K, V>>
+    pub fn range<'a, R>(&'a self, range: R) -> Result<Range<'a, K, V>>
     where
         R: RangeBounds<K>,
     {
@@ -374,7 +374,7 @@ where
 {
     start: Bound<K>,
     end: Bound<K>,
-    nodes: &'a NodeFile<'a, K>,
+    nodes: &'a NodeFile<K>,
     values: &'a dyn TupleFile<V>,
     stack: Vec<node::StackEntry>,
     phantom: PhantomData<V>,
