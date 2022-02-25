@@ -316,7 +316,7 @@ where
         if i <= n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
             let key_size: usize = self.keys.serialized_size(key)?.try_into()?;
-            let key_id = self.keys.allocate_block(key_size + BlockHeader::size())?;
+            let key_id = self.keys.allocate_block(key_size)?;
             self.keys.put(key_id, key)?;
 
             let key_id: u64 = key_id.try_into()?;

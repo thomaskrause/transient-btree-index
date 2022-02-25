@@ -27,7 +27,10 @@ pub trait TupleFile<B>: Sync
 where
     B: Sync,
 {
-    /// Allocate a new block with the given capacity.
+    /// Allocate a new block with the given capacity to hold this many bytes of data.
+    ///
+    /// In case there is any internal block header or other meta data,
+    /// the size for this internal data should be **excluded** in this argument.
     ///
     /// Returns the ID of the new block.
     fn allocate_block(&mut self, capacity: usize) -> Result<usize>;

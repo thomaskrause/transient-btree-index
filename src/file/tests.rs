@@ -1,7 +1,7 @@
 use generic_array::{typenum::U8, GenericArray};
 
 use super::VariableSizeTupleFile;
-use crate::file::{BlockHeader, FixedSizeTupleFile, TupleFile};
+use crate::file::{FixedSizeTupleFile, TupleFile};
 
 #[test]
 fn grow_mmap_from_zero_capacity() {
@@ -55,7 +55,9 @@ fn block_insert_get_update() {
     assert_eq!(128, m.mmap.len());
 
     let mut b: Vec<u64> = std::iter::repeat(42).take(10).collect();
-    let idx = m.allocate_block(256 - BlockHeader::size()).unwrap();
+    let idx = m
+        .allocate_block(256 - crate::file::BlockHeader::size())
+        .unwrap();
     // The block needs space for the data, but also for the header
     assert_eq!(256, m.mmap.len());
 
