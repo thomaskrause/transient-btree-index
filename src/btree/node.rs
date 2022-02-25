@@ -50,7 +50,7 @@ where
 {
     pub fn fixed_size_with_capacity<N>(capacity: usize) -> Result<NodeFile<K>>
     where
-        N: ArrayLength<u8> + Sync,
+        N: ArrayLength<u8> + Send + Sync,
         K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
     {
         // Create an anonymous memory mapped file with the capacity as size
