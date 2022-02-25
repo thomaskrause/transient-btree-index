@@ -1,10 +1,85 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use fake::{Fake, StringFaker};
+use fake::{Fake, Faker, StringFaker};
+use generic_array::{typenum::U8, GenericArray};
+use serde_derive::{Deserialize, Serialize};
 use transient_btree_index::{BtreeConfig, BtreeIndex};
 
-fn benchmark(c: &mut Criterion) {
-    const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd, Eq, Ord)]
+struct FixedKey(u64);
+
+impl Into<GenericArray<u8, U8>> for FixedKey {
+    fn into(self) -> GenericArray<u8, U8> {
+        self.0.to_le_bytes().into()
+    }
+}
+
+impl From<GenericArray<u8, U8>> for FixedKey {
+    fn from(bytes: GenericArray<u8, U8>) -> Self {
+        let bytes: [u8; 8] = bytes.into();
+        FixedKey(u64::from_le_bytes(bytes))
+    }
+}
+
+fn fixed_vs_variable(c: &mut Criterion) {
+    let mut g = c.benchmark_group("variable vs. fixed tuple size");
+
+    let n_entries = 10_000;
+    let name_faker = fake::faker::name::en::Name();
+
+    g.bench_function("insert fixed size key", |b| {
+        let mut btree: BtreeIndex<FixedKey, String> = BtreeIndex::fixed_key_size_with_capacity(
+            BtreeConfig::default().max_key_size(8).max_value_size(64),
+            n_entries,
+        )
+        .unwrap();
+
+        // Insert the initial strings
+        for _ in 0..n_entries {
+            btree
+                .insert(FixedKey(Faker.fake()), name_faker.fake())
+                .unwrap();
+        }
+
+        let additional_key = FixedKey(Faker.fake());
+        let additional_value: String = name_faker.fake();
+
+        b.iter(|| {
+            btree
+                .insert(additional_key.clone(), additional_value.clone())
+                .unwrap();
+        })
+    });
+
+    g.bench_function("insert variable size key", |b| {
+        let mut btree: BtreeIndex<FixedKey, String> = BtreeIndex::with_capacity(
+            BtreeConfig::default().max_key_size(8).max_value_size(64),
+            n_entries,
+        )
+        .unwrap();
+
+        // Insert the initial strings
+        for _ in 0..n_entries {
+            btree
+                .insert(FixedKey(Faker.fake()), name_faker.fake())
+                .unwrap();
+        }
+
+        let additional_key = FixedKey(Faker.fake());
+        let additional_value: String = name_faker.fake();
+
+        b.iter(|| {
+            btree
+                .insert(additional_key.clone(), additional_value.clone())
+                .unwrap();
+        })
+    });
+
+    g.finish()
+}
+
+fn insertion(c: &mut Criterion) {
     c.bench_function("insert 1 string", |b| {
         // Create an index with 10.000 random entries
         let n_entries = 10_000;
@@ -58,7 +133,9 @@ fn benchmark(c: &mut Criterion) {
                 .unwrap();
         })
     });
+}
 
+fn search(c: &mut Criterion) {
     c.bench_function("search existing string", |b| {
         // Create an index with 10.000 random entries
         let n_entries = 10_000;
@@ -89,5 +166,5 @@ fn benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark);
+criterion_group!(benches, insertion, fixed_vs_variable, search);
 criterion_main!(benches);

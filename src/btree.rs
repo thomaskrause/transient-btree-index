@@ -309,9 +309,7 @@ where
             SearchResult::NotFound(i) => {
                 if self.nodes.is_leaf(node_id)? {
                     let value_size: usize = self.values.serialized_size(&value)?.try_into()?;
-                    let payload_id = self
-                        .values
-                        .allocate_block(value_size + BlockHeader::size())?;
+                    let payload_id = self.values.allocate_block(value_size)?;
                     self.values.put(payload_id, &value)?;
 
                     // Make space for the new key by moving the other items to the right
