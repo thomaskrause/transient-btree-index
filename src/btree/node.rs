@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::file::{BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile};
-use crate::{create_mmap, BtreeConfig, Error};
+use crate::{create_mmap, AsByteVec, BtreeConfig, Error, FromByteSlice};
 use binary_layout::prelude::*;
-use generic_array::{ArrayLength, GenericArray};
+use generic_array::ArrayLength;
 use memmap2::MmapMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -51,7 +51,7 @@ where
     pub fn fixed_size_with_capacity<N>(capacity: usize) -> Result<NodeFile<K>>
     where
         N: ArrayLength<u8> + Send + Sync,
-        K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+        K: AsByteVec + FromByteSlice,
     {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
@@ -59,6 +59,7 @@ where
 
         let keys = FixedSizeTupleFile::with_capacity(
             (capacity * MAX_NUMBER_KEYS * N::to_usize()) + BlockHeader::size(),
+            N::to_usize(),
         )?;
 
         Ok(NodeFile {
