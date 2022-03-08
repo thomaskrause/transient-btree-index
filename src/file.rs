@@ -348,6 +348,27 @@ pub trait AsByteArray {
     fn serialized_byte_array_size() -> usize;
 }
 
+impl AsByteArray for u16 {
+    fn as_byte_vec(&self) -> Vec<u8> {
+        self.to_le_bytes().into()
+    }
+
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized,
+    {
+        let slice: &[u8] = slice.as_ref();
+        let bytes: [u8; 2] = slice.try_into()?;
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    fn serialized_byte_array_size() -> usize {
+        2
+    }
+}
+
 impl AsByteArray for u32 {
     fn as_byte_vec(&self) -> Vec<u8> {
         self.to_le_bytes().into()
