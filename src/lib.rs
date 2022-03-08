@@ -47,8 +47,6 @@ use memmap2::MmapMut;
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
 
-pub use file::AsByteArray;
-
 /// Create a new memory mapped file with the capacity in bytes.
 fn create_mmap(capacity: usize) -> error::Result<MmapMut> {
     let file = tempfile::tempfile()?;

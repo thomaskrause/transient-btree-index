@@ -3,7 +3,7 @@ use std::ops::{Bound, RangeBounds};
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::file::{AsByteArray, BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile};
+use crate::file::{BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile};
 use crate::{create_mmap, BtreeConfig, Error};
 use binary_layout::prelude::*;
 use memmap2::MmapMut;
@@ -47,30 +47,6 @@ impl<K> NodeFile<K>
 where
     K: 'static + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
-    pub fn fixed_size_with_capacity(capacity: usize) -> Result<NodeFile<K>>
-    where
-        K: AsByteArray,
-    {
-        // Create an anonymous memory mapped file with the capacity as size
-        let capacity = capacity.max(1);
-        let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
-
-        let keys = FixedSizeTupleFile::with_capacity(
-            (capacity * MAX_NUMBER_KEYS * K::serialized_byte_array_size()) + BlockHeader::size(),
-        )?;
-
-        Ok(NodeFile {
-            mmap,
-            keys: Box::new(keys),
-            free_space_offset: 0,
-        })
-    }
-}
-
-impl<K> NodeFile<K>
-where
-    K: 'static + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
-{
     /// Create a new file with the given capacity in number of keys.
     pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<K>> {
         // Calculate the number of nodes based on the number of keys each node can hold
@@ -81,14 +57,24 @@ where
         let mmap = create_mmap(capacity_in_nodes * NODE_BLOCK_ALIGNED_SIZE)?;
 
         // Create a tuple file that can hold the actual key values
-        let keys = VariableSizeTupleFile::with_capacity(
-            capacity * (config.est_max_value_size + BlockHeader::size()),
-            config.block_cache_size,
-        )?;
+        let keys: Box<dyn TupleFile<K>> = match config.key_size {
+            super::TypeSize::Estimated(est_max_key_size) => {
+                let f = VariableSizeTupleFile::with_capacity(
+                    capacity * (est_max_key_size + BlockHeader::size()),
+                    config.block_cache_size,
+                )?;
+                Box::new(f)
+            }
+            super::TypeSize::Fixed(fixed_key_size) => {
+                let f =
+                    FixedSizeTupleFile::with_capacity(capacity * fixed_key_size, fixed_key_size)?;
+                Box::new(f)
+            }
+        };
 
         Ok(NodeFile {
             mmap,
-            keys: Box::new(keys),
+            keys,
             free_space_offset: 0,
         })
     }

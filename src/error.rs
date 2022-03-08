@@ -21,8 +21,6 @@ pub enum Error {
     EmptyChildNodeInSplit,
     #[error("The given capacity of {capacity} was invalid.")]
     InvalidCapacity { capacity: usize },
-    #[error("The requested block size {actual} is invalid. Expected was a fixed block size of {expected}.")]
-    InvalidBlocksize { actual: usize, expected: usize },
     #[error("Deserialization of block failed: {0}")]
     DeserializeBlock(String),
     #[error(transparent)]

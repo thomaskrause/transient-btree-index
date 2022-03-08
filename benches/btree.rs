@@ -11,11 +11,9 @@ fn fixed_vs_variable(c: &mut Criterion) {
     let name_faker = fake::faker::name::en::Name();
 
     g.bench_function("insert fixed size key", |b| {
-        let mut btree: BtreeIndex<u64, String> = BtreeIndex::fixed_key_size_with_capacity(
-            BtreeConfig::default().max_key_size(8).max_value_size(64),
-            n_entries,
-        )
-        .unwrap();
+        let config = BtreeConfig::default().fixed_key_size(8).max_value_size(64);
+        let mut btree: BtreeIndex<u64, String> =
+            BtreeIndex::with_capacity(config, n_entries).unwrap();
 
         // Insert the initial strings
         for _ in 0..n_entries {

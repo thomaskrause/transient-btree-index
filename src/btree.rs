@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     error::Result,
-    file::{AsByteArray, BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile},
+    file::{BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile},
     Error,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -35,11 +35,16 @@ where
     nr_elements: usize,
 }
 
+pub enum TypeSize {
+    Estimated(usize),
+    Fixed(usize),
+}
+
 /// Configuration for a B-tree index.
 pub struct BtreeConfig {
     order: usize,
-    est_max_key_size: usize,
-    est_max_value_size: usize,
+    key_size: TypeSize,
+    value_size: TypeSize,
     block_cache_size: usize,
 }
 
@@ -47,8 +52,8 @@ impl Default for BtreeConfig {
     fn default() -> Self {
         Self {
             order: 84,
-            est_max_key_size: 32,
-            est_max_value_size: 32,
+            key_size: TypeSize::Estimated(32),
+            value_size: TypeSize::Estimated(32),
             block_cache_size: 16,
         }
     }
@@ -61,7 +66,15 @@ impl BtreeConfig {
     /// might need to be re-allocated, which causes memory fragmentation on the disk
     /// and some main memory overhead for remembering the re-allocated block IDs.
     pub fn max_key_size(mut self, est_max_key_size: usize) -> Self {
-        self.est_max_key_size = est_max_key_size;
+        self.key_size = TypeSize::Estimated(est_max_key_size);
+        self
+    }
+
+    /// Set the fixed size in bytes for each key.
+    ///
+    /// If serializing the key needs a fixed number of bytes, a more efficient internal implementation can be used.
+    pub fn fixed_key_size(mut self, key_size: usize) -> Self {
+        self.key_size = TypeSize::Fixed(key_size);
         self
     }
 
@@ -71,7 +84,15 @@ impl BtreeConfig {
     /// might need to be re-allocated, which causes memory fragmentation on the disk
     /// and some main memory overhead for remembering the re-allocated block IDs.
     pub fn max_value_size(mut self, est_max_value_size: usize) -> Self {
-        self.est_max_value_size = est_max_value_size;
+        self.value_size = TypeSize::Estimated(est_max_value_size);
+        self
+    }
+
+    /// Set the fixed size in bytes for each value.
+    ///
+    /// If serializing the value needs a fixed number of bytes,  a more efficient internal implementation can be used.
+    pub fn fixed_value_size(mut self, value_size: usize) -> Self {
+        self.value_size = TypeSize::Fixed(value_size);
         self
     }
 
@@ -106,72 +127,6 @@ where
     V: 'static + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn fixed_key_size_with_capacity(
-        config: BtreeConfig,
-        capacity: usize,
-    ) -> Result<BtreeIndex<K, V>>
-    where
-        K: AsByteArray,
-    {
-        if config.order < 2 {
-            return Err(Error::OrderTooSmall(config.order));
-        } else if config.order > MAX_NUMBER_KEYS / 2 {
-            return Err(Error::OrderTooLarge(config.order));
-        }
-        let capacity_in_blocks = capacity / config.order;
-
-        let mut nodes = NodeFile::fixed_size_with_capacity(capacity / config.order)?;
-
-        let values = VariableSizeTupleFile::with_capacity(
-            (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
-            config.block_cache_size,
-        )?;
-
-        // Always add an empty root node
-        let root_id = nodes.allocate_new_node()?;
-
-        Ok(BtreeIndex {
-            root_id,
-            nodes,
-            values: Box::new(values),
-            order: config.order,
-            nr_elements: 0,
-            last_inserted_node_id: root_id,
-        })
-    }
-
-    /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn fixed_value_size_with_capacity(
-        config: BtreeConfig,
-        capacity: usize,
-    ) -> Result<BtreeIndex<K, V>>
-    where
-        V: AsByteArray,
-    {
-        if config.order < 2 {
-            return Err(Error::OrderTooSmall(config.order));
-        } else if config.order > MAX_NUMBER_KEYS / 2 {
-            return Err(Error::OrderTooLarge(config.order));
-        }
-
-        let mut nodes = NodeFile::with_capacity(capacity, &config)?;
-
-        let values = FixedSizeTupleFile::with_capacity(capacity * V::serialized_byte_array_size())?;
-
-        // Always add an empty root node
-        let root_id = nodes.allocate_new_node()?;
-
-        Ok(BtreeIndex {
-            root_id,
-            nodes,
-            values: Box::new(values),
-            order: config.order,
-            nr_elements: 0,
-            last_inserted_node_id: root_id,
-        })
-    }
-
-    /// Create a new instance with the given configuration and capacity in number of elements.
     pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
@@ -181,10 +136,22 @@ where
 
         let mut nodes = NodeFile::with_capacity(capacity, &config)?;
 
-        let values = VariableSizeTupleFile::with_capacity(
-            capacity * (config.est_max_value_size + BlockHeader::size()),
-            config.block_cache_size,
-        )?;
+        let values: Box<dyn TupleFile<V>> = match config.value_size {
+            TypeSize::Estimated(est_max_value_size) => {
+                let f = VariableSizeTupleFile::with_capacity(
+                    capacity * (est_max_value_size + BlockHeader::size()),
+                    config.block_cache_size,
+                )?;
+                Box::new(f)
+            }
+            TypeSize::Fixed(fixed_value_size) => {
+                let f = FixedSizeTupleFile::with_capacity(
+                    capacity * fixed_value_size,
+                    fixed_value_size,
+                )?;
+                Box::new(f)
+            }
+        };
 
         // Always add an empty root node
         let root_id = nodes.allocate_new_node()?;
@@ -192,7 +159,7 @@ where
         Ok(BtreeIndex {
             root_id,
             nodes,
-            values: Box::new(values),
+            values,
             order: config.order,
             nr_elements: 0,
             last_inserted_node_id: root_id,
