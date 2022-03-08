@@ -6,7 +6,6 @@ use crate::error::Result;
 use crate::file::{AsByteArray, BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile};
 use crate::{create_mmap, BtreeConfig, Error};
 use binary_layout::prelude::*;
-use generic_array::ArrayLength;
 use memmap2::MmapMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -48,9 +47,8 @@ impl<K> NodeFile<K>
 where
     K: 'static + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
-    pub fn fixed_size_with_capacity<N>(capacity: usize) -> Result<NodeFile<K>>
+    pub fn fixed_size_with_capacity(capacity: usize) -> Result<NodeFile<K>>
     where
-        N: ArrayLength<u8> + Send + Sync,
         K: AsByteArray,
     {
         // Create an anonymous memory mapped file with the capacity as size
@@ -58,7 +56,7 @@ where
         let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
 
         let keys = FixedSizeTupleFile::with_capacity(
-            (capacity * MAX_NUMBER_KEYS * N::to_usize()) + BlockHeader::size(),
+            (capacity * MAX_NUMBER_KEYS * K::serialized_byte_array_size()) + BlockHeader::size(),
         )?;
 
         Ok(NodeFile {

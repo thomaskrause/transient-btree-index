@@ -8,7 +8,6 @@ use crate::{
     file::{AsByteArray, BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile},
     Error,
 };
-use generic_array::ArrayLength;
 use serde::{de::DeserializeOwned, Serialize};
 
 use self::node::{NodeFile, SearchResult, StackEntry, MAX_NUMBER_KEYS};
@@ -107,12 +106,11 @@ where
     V: 'static + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn fixed_key_size_with_capacity<N>(
+    pub fn fixed_key_size_with_capacity(
         config: BtreeConfig,
         capacity: usize,
     ) -> Result<BtreeIndex<K, V>>
     where
-        N: ArrayLength<u8> + Send + Sync,
         K: AsByteArray,
     {
         if config.order < 2 {
@@ -122,7 +120,7 @@ where
         }
         let capacity_in_blocks = capacity / config.order;
 
-        let mut nodes = NodeFile::fixed_size_with_capacity::<N>(capacity / config.order)?;
+        let mut nodes = NodeFile::fixed_size_with_capacity(capacity / config.order)?;
 
         let values = VariableSizeTupleFile::with_capacity(
             (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
@@ -143,12 +141,11 @@ where
     }
 
     /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn fixed_value_size_with_capacity<N>(
+    pub fn fixed_value_size_with_capacity(
         config: BtreeConfig,
         capacity: usize,
     ) -> Result<BtreeIndex<K, V>>
     where
-        N: ArrayLength<u8> + Send + Sync,
         V: AsByteArray,
     {
         if config.order < 2 {
@@ -160,7 +157,9 @@ where
 
         let mut nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
 
-        let values = FixedSizeTupleFile::with_capacity(capacity_in_blocks * N::to_usize())?;
+        let values = FixedSizeTupleFile::with_capacity(
+            capacity_in_blocks * V::serialized_byte_array_size(),
+        )?;
 
         // Always add an empty root node
         let root_id = nodes.allocate_new_node()?;
