@@ -16,6 +16,7 @@ serde = "1"
 serde_derive = "1"
 tempfile = "3.3"
 thiserror = "1"
+num-integer = "0.1"
 
 [dev-dependencies]
 criterion = "0.3"

@@ -71,13 +71,18 @@ impl<K> NodeFile<K>
 where
     K: 'static + Serialize + DeserializeOwned + Clone + Ord + Send + Sync,
 {
+    /// Create a new file with the given capacity in number of keys.
     pub fn with_capacity(capacity: usize, config: &BtreeConfig) -> Result<NodeFile<K>> {
-        // Create an anonymous memory mapped file with the capacity as size
-        let capacity = capacity.max(1);
-        let mmap = create_mmap(capacity * NODE_BLOCK_ALIGNED_SIZE)?;
+        // Calculate the number of nodes based on the number of keys each node can hold
+        let capacity_in_nodes = num_integer::div_ceil(capacity, MAX_NUMBER_KEYS);
+        let capacity_in_nodes = capacity_in_nodes.max(1);
 
+        // Create an anonymous memory mapped file that can hold the
+        let mmap = create_mmap(capacity_in_nodes * NODE_BLOCK_ALIGNED_SIZE)?;
+
+        // Create a tuple file that can hold the actual key values
         let keys = VariableSizeTupleFile::with_capacity(
-            (capacity * MAX_NUMBER_KEYS * config.est_max_value_size) + BlockHeader::size(),
+            capacity * (config.est_max_value_size + BlockHeader::size()),
             config.block_cache_size,
         )?;
 

@@ -153,13 +153,10 @@ where
         } else if config.order > MAX_NUMBER_KEYS / 2 {
             return Err(Error::OrderTooLarge(config.order));
         }
-        let capacity_in_blocks = capacity / config.order;
 
-        let mut nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
+        let mut nodes = NodeFile::with_capacity(capacity, &config)?;
 
-        let values = FixedSizeTupleFile::with_capacity(
-            capacity_in_blocks * V::serialized_byte_array_size(),
-        )?;
+        let values = FixedSizeTupleFile::with_capacity(capacity * V::serialized_byte_array_size())?;
 
         // Always add an empty root node
         let root_id = nodes.allocate_new_node()?;
@@ -181,12 +178,11 @@ where
         } else if config.order > MAX_NUMBER_KEYS / 2 {
             return Err(Error::OrderTooLarge(config.order));
         }
-        let capacity_in_blocks = capacity / config.order;
 
-        let mut nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
+        let mut nodes = NodeFile::with_capacity(capacity, &config)?;
 
         let values = VariableSizeTupleFile::with_capacity(
-            (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
+            capacity * (config.est_max_value_size + BlockHeader::size()),
             config.block_cache_size,
         )?;
 
