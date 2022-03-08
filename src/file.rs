@@ -294,11 +294,50 @@ where
 }
 
 /// A trait for types that can be (de)serialized from or to a byte array of fixed length.
+///
+/// ## Implementation on foreign types
+///
+/// This trait is implemented for some integer types typyically used as keys in a map.
+/// To implement it on another foreign type, wrap the type it in your own type.
+///
+///
+///
+/// ```rust
+/// use transient_btree_index::AsByteArray;
+///
+/// struct Key(i64);
+///
+/// impl AsByteArray for Key {
+///     fn as_byte_vec(&self) -> Vec<u8> {
+///         self.0.to_le_bytes().into()
+///     }
+///
+///     fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+///         slice: &T,
+///     ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+///     where
+///         Self: Sized,
+///     {
+///         let slice: &[u8] = slice.as_ref();
+///         let bytes: [u8; 8] = slice.try_into()?;
+///         Ok(Key(i64::from_le_bytes(bytes)))
+///     }
+///
+///     fn serialized_byte_array_size() -> usize {
+///         8
+///     }
+/// }
+
+/// ```
 pub trait AsByteArray {
     /// Create a vector of bytes for this value.
+    ///
+    /// The return value must have the length returned by [`Self::serialized_byte_array_size`]
     fn as_byte_vec(&self) -> Vec<u8>;
 
     /// Create a new element from a byte slice.
+    ///
+    /// The given slice must have the length returned by [`Self::serialized_byte_array_size`]
     fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
         slice: &T,
     ) -> std::result::Result<Self, Box<dyn std::error::Error>>
@@ -306,7 +345,70 @@ pub trait AsByteArray {
         Self: Sized;
 
     /// Get the fixed size needed to serialize this type.
-    fn serialized_size() -> usize;
+    fn serialized_byte_array_size() -> usize;
+}
+
+impl AsByteArray for u32 {
+    fn as_byte_vec(&self) -> Vec<u8> {
+        self.to_le_bytes().into()
+    }
+
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized,
+    {
+        let slice: &[u8] = slice.as_ref();
+        let bytes: [u8; 4] = slice.try_into()?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn serialized_byte_array_size() -> usize {
+        4
+    }
+}
+
+impl AsByteArray for u64 {
+    fn as_byte_vec(&self) -> Vec<u8> {
+        self.to_le_bytes().into()
+    }
+
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized,
+    {
+        let slice: &[u8] = slice.as_ref();
+        let bytes: [u8; 8] = slice.try_into()?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn serialized_byte_array_size() -> usize {
+        8
+    }
+}
+
+impl AsByteArray for u128 {
+    fn as_byte_vec(&self) -> Vec<u8> {
+        self.to_le_bytes().into()
+    }
+
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized,
+    {
+        let slice: &[u8] = slice.as_ref();
+        let bytes: [u8; 16] = slice.try_into()?;
+        Ok(u128::from_le_bytes(bytes))
+    }
+
+    fn serialized_byte_array_size() -> usize {
+        16
+    }
 }
 
 pub struct FixedSizeTupleFile<B>
@@ -323,12 +425,12 @@ where
     B: AsByteArray + Clone + Send + Sync,
 {
     fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
-        if capacity != B::serialized_size() {
+        if capacity != B::serialized_byte_array_size() {
             return Err(Error::InvalidCapacity { capacity });
         }
 
         // Make sure we still have enough space left in the file
-        let new_offset = self.free_space_offset + B::serialized_size();
+        let new_offset = self.free_space_offset + B::serialized_byte_array_size();
         self.grow(new_offset)?;
 
         // Return the old start of free space as block index
@@ -352,14 +454,14 @@ where
     fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         // Serialize the block and write it at the proper location in the file
         let block_start = block_id;
-        let block_end = block_start + B::serialized_size();
+        let block_end = block_start + B::serialized_byte_array_size();
 
         let block_as_bytes = block.as_byte_vec();
 
-        if block_as_bytes.len() != B::serialized_size() {
+        if block_as_bytes.len() != B::serialized_byte_array_size() {
             return Err(Error::InvalidBlocksize {
                 actual: block_as_bytes.len(),
-                expected: B::serialized_size(),
+                expected: B::serialized_byte_array_size(),
             });
         }
 
@@ -368,7 +470,7 @@ where
     }
 
     fn serialized_size(&self, _block: &B) -> Result<u64> {
-        Ok(B::serialized_size().try_into()?)
+        Ok(B::serialized_byte_array_size().try_into()?)
     }
 }
 
@@ -415,7 +517,7 @@ where
     fn read_block(&self, block_id: usize) -> Result<B> {
         // Deserialize and return
         let block_start = block_id;
-        let block_end = block_start + B::serialized_size();
+        let block_end = block_start + B::serialized_byte_array_size();
 
         let block = B::from_byte_slice(&self.mmap[block_start..block_end])
             .map_err(|err| Error::DeserializeBlock(err.to_string()))?;

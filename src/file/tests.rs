@@ -1,8 +1,5 @@
 use super::VariableSizeTupleFile;
-use crate::{
-    file::{FixedSizeTupleFile, TupleFile},
-    AsByteArray,
-};
+use crate::file::{FixedSizeTupleFile, TupleFile};
 
 #[test]
 fn grow_mmap_from_zero_capacity() {
@@ -93,39 +90,16 @@ fn block_insert_get_update() {
     assert_eq!(large_block, m.get_owned(idx).unwrap());
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub struct TestInt(u64);
-
-impl AsByteArray for TestInt {
-    fn as_byte_vec(&self) -> Vec<u8> {
-        self.0.to_le_bytes().into()
-    }
-    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
-        slice: &T,
-    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
-    where
-        Self: Sized,
-    {
-        let slice: &[u8] = slice.as_ref();
-        let bytes: [u8; 8] = slice.try_into()?;
-        Ok(TestInt(u64::from_le_bytes(bytes)))
-    }
-
-    fn serialized_size() -> usize {
-        8
-    }
-}
-
 #[test]
 fn block_insert_get_update_fixed_size() {
-    let mut m = FixedSizeTupleFile::<TestInt>::with_capacity(128).unwrap();
+    let mut m = FixedSizeTupleFile::<u64>::with_capacity(128).unwrap();
     assert_eq!(128, m.mmap.len());
 
     // Check that we can't allocate block with a size different to 8
     assert!(m.allocate_block(4).is_err());
     assert!(m.allocate_block(16).is_err());
 
-    let b = TestInt(42);
+    let b = 42;
     let idx = m.allocate_block(8).unwrap();
 
     // Insert the block as it is
