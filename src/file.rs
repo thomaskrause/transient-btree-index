@@ -198,7 +198,7 @@ impl<B> VariableSizeTupleFile<B>
 where
     B: Serialize + DeserializeOwned + Clone + Sync + Send + Sync,
 {
-    /// Create a new file with the given capacity.
+    /// Create a new file with the given capacity in bytes.
     ///
     /// New blocks can be allocated with [`Self::allocate_block()`].
     /// While the file will automatically grow when block are allocated and the capacity is reached,
