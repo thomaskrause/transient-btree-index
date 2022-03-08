@@ -92,7 +92,7 @@ fn block_insert_get_update() {
 
 #[test]
 fn block_insert_get_update_fixed_size() {
-    let mut m = FixedSizeTupleFile::<u64>::with_capacity(128).unwrap();
+    let mut m = FixedSizeTupleFile::<u64>::with_capacity(128, 8).unwrap();
     assert_eq!(128, m.mmap.len());
 
     // Check that we can't allocate block with a size different to 8
