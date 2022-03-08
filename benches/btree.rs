@@ -1,33 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use fake::{Fake, Faker, StringFaker};
-use serde_derive::{Deserialize, Serialize};
-use transient_btree_index::{AsByteArray, BtreeConfig, BtreeIndex};
+use transient_btree_index::{BtreeConfig, BtreeIndex};
 
 const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd, Eq, Ord)]
-struct FixedKey(u64);
-
-impl AsByteArray for FixedKey {
-    fn as_byte_vec(&self) -> Vec<u8> {
-        self.0.to_le_bytes().into()
-    }
-
-    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
-        slice: &T,
-    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
-    where
-        Self: Sized,
-    {
-        let slice: &[u8] = slice.as_ref();
-        let bytes: [u8; 8] = slice.try_into()?;
-        Ok(FixedKey(u64::from_le_bytes(bytes)))
-    }
-
-    fn serialized_size() -> usize {
-        8
-    }
-}
 
 fn fixed_vs_variable(c: &mut Criterion) {
     let mut g = c.benchmark_group("variable vs. fixed tuple size");
@@ -36,7 +11,7 @@ fn fixed_vs_variable(c: &mut Criterion) {
     let name_faker = fake::faker::name::en::Name();
 
     g.bench_function("insert fixed size key", |b| {
-        let mut btree: BtreeIndex<FixedKey, String> =
+        let mut btree: BtreeIndex<u64, String> =
             BtreeIndex::fixed_key_size_with_capacity::<generic_array::typenum::U8>(
                 BtreeConfig::default().max_key_size(8).max_value_size(64),
                 n_entries,
@@ -45,12 +20,10 @@ fn fixed_vs_variable(c: &mut Criterion) {
 
         // Insert the initial strings
         for _ in 0..n_entries {
-            btree
-                .insert(FixedKey(Faker.fake()), name_faker.fake())
-                .unwrap();
+            btree.insert(Faker.fake(), name_faker.fake()).unwrap();
         }
 
-        let additional_key = FixedKey(Faker.fake());
+        let additional_key: u64 = Faker.fake();
         let additional_value: String = name_faker.fake();
 
         b.iter(|| {
@@ -61,7 +34,7 @@ fn fixed_vs_variable(c: &mut Criterion) {
     });
 
     g.bench_function("insert variable size key", |b| {
-        let mut btree: BtreeIndex<FixedKey, String> = BtreeIndex::with_capacity(
+        let mut btree: BtreeIndex<u64, String> = BtreeIndex::with_capacity(
             BtreeConfig::default().max_key_size(8).max_value_size(64),
             n_entries,
         )
@@ -69,12 +42,10 @@ fn fixed_vs_variable(c: &mut Criterion) {
 
         // Insert the initial strings
         for _ in 0..n_entries {
-            btree
-                .insert(FixedKey(Faker.fake()), name_faker.fake())
-                .unwrap();
+            btree.insert(Faker.fake(), name_faker.fake()).unwrap();
         }
 
-        let additional_key = FixedKey(Faker.fake());
+        let additional_key: u64 = Faker.fake();
         let additional_value: String = name_faker.fake();
 
         b.iter(|| {
