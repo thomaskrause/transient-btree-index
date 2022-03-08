@@ -35,12 +35,14 @@ where
     nr_elements: usize,
 }
 
+#[derive(Clone)]
 pub enum TypeSize {
     Estimated(usize),
     Fixed(usize),
 }
 
 /// Configuration for a B-tree index.
+#[derive(Clone)]
 pub struct BtreeConfig {
     order: usize,
     key_size: TypeSize,
