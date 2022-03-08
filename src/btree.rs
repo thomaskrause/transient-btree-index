@@ -6,9 +6,9 @@ use std::{
 use crate::{
     error::Result,
     file::{BlockHeader, FixedSizeTupleFile, TupleFile, VariableSizeTupleFile},
-    Error,
+    AsByteVec, Error, FromByteSlice,
 };
-use generic_array::{ArrayLength, GenericArray};
+use generic_array::ArrayLength;
 use serde::{de::DeserializeOwned, Serialize};
 
 use self::node::{NodeFile, SearchResult, StackEntry, MAX_NUMBER_KEYS};
@@ -113,7 +113,7 @@ where
     ) -> Result<BtreeIndex<K, V>>
     where
         N: ArrayLength<u8> + Send + Sync,
-        K: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+        K: AsByteVec + FromByteSlice,
     {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
@@ -122,7 +122,7 @@ where
         }
         let capacity_in_blocks = capacity / config.order;
 
-        let mut nodes = NodeFile::fixed_size_with_capacity(capacity / config.order)?;
+        let mut nodes = NodeFile::fixed_size_with_capacity::<N>(capacity / config.order)?;
 
         let values = VariableSizeTupleFile::with_capacity(
             (capacity_in_blocks * config.est_max_value_size) + BlockHeader::size(),
@@ -149,7 +149,7 @@ where
     ) -> Result<BtreeIndex<K, V>>
     where
         N: ArrayLength<u8> + Send + Sync,
-        V: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>>,
+        V: AsByteVec + FromByteSlice,
     {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
@@ -160,7 +160,8 @@ where
 
         let mut nodes = NodeFile::with_capacity(capacity / config.order, &config)?;
 
-        let values = FixedSizeTupleFile::with_capacity(capacity_in_blocks * N::to_usize())?;
+        let values =
+            FixedSizeTupleFile::with_capacity(capacity_in_blocks * N::to_usize(), N::to_usize())?;
 
         // Always add an empty root node
         let root_id = nodes.allocate_new_node()?;

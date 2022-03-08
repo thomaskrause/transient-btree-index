@@ -6,9 +6,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{create_mmap, error::Result, Error, PAGE_SIZE};
+use crate::{create_mmap, error::Result, AsByteVec, Error, FromByteSlice, PAGE_SIZE};
 use bincode::Options;
-use generic_array::{ArrayLength, GenericArray};
 use linked_hash_map::LinkedHashMap;
 use memmap2::MmapMut;
 use serde::{de::DeserializeOwned, Serialize};
@@ -294,28 +293,27 @@ where
     }
 }
 
-pub struct FixedSizeTupleFile<B, N>
+pub struct FixedSizeTupleFile<B>
 where
-    N: ArrayLength<u8>,
     B: Sync,
 {
     free_space_offset: usize,
     mmap: MmapMut,
-    phantom: PhantomData<(B, N)>,
+    block_size: usize,
+    phantom: PhantomData<B>,
 }
 
-impl<B, N> TupleFile<B> for FixedSizeTupleFile<B, N>
+impl<B> TupleFile<B> for FixedSizeTupleFile<B>
 where
-    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Clone + Send + Sync,
-    N: ArrayLength<u8> + Send + Sync,
+    B: AsByteVec + FromByteSlice + Clone + Send + Sync,
 {
     fn allocate_block(&mut self, capacity: usize) -> Result<usize> {
-        if capacity != N::to_usize() {
+        if capacity != self.block_size {
             return Err(Error::InvalidCapacity { capacity });
         }
 
         // Make sure we still have enough space left in the file
-        let new_offset = self.free_space_offset + N::to_usize();
+        let new_offset = self.free_space_offset + self.block_size;
         self.grow(new_offset)?;
 
         // Return the old start of free space as block index
@@ -338,37 +336,43 @@ where
 
     fn put(&mut self, block_id: usize, block: &B) -> Result<()> {
         // Serialize the block and write it at the proper location in the file
-        let block_size: usize = N::to_usize();
         let block_start = block_id;
-        let block_end = block_start + block_size;
+        let block_end = block_start + self.block_size;
 
-        let block_as_bytes: GenericArray<u8, N> = block.clone().into();
+        let block_as_bytes = block.as_byte_vec();
+
+        if block_as_bytes.len() != self.block_size {
+            return Err(Error::InvalidBlocksize {
+                actual: block_as_bytes.len(),
+                expected: self.block_size,
+            });
+        }
 
         self.mmap[block_start..block_end].copy_from_slice(&block_as_bytes);
         Ok(())
     }
 
     fn serialized_size(&self, _block: &B) -> Result<u64> {
-        Ok(N::to_u64())
+        Ok(self.block_size.try_into()?)
     }
 }
 
-impl<B, N> FixedSizeTupleFile<B, N>
+impl<B> FixedSizeTupleFile<B>
 where
-    B: Into<GenericArray<u8, N>> + From<GenericArray<u8, N>> + Sync,
-    N: ArrayLength<u8>,
+    B: AsByteVec + FromByteSlice + Sync,
 {
     /// Create a new file with the given capacity.
     ///
     /// New blocks can be allocated with [`Self::allocate_block()`].
     /// The file will automatically grow when block are allocated and the capacity is reached
-    pub fn with_capacity(capacity: usize) -> Result<FixedSizeTupleFile<B, N>> {
+    pub fn with_capacity(capacity: usize, block_size: usize) -> Result<FixedSizeTupleFile<B>> {
         // Create an anonymous memory mapped file with the capacity as size
         let capacity = capacity.max(1);
         let mmap = create_mmap(capacity)?;
         Ok(FixedSizeTupleFile {
             mmap,
             free_space_offset: 0,
+            block_size,
             phantom: PhantomData,
         })
     }
@@ -397,12 +401,10 @@ where
     fn read_block(&self, block_id: usize) -> Result<B> {
         // Deserialize and return
         let block_start = block_id;
-        let block_end = block_start + N::to_usize();
+        let block_end = block_start + self.block_size;
 
-        let data: GenericArray<u8, N> =
-            GenericArray::clone_from_slice(&self.mmap[block_start..block_end]);
-
-        let block: B = data.into();
+        let block = B::from_byte_slice(&self.mmap[block_start..block_end])
+            .map_err(|err| Error::DeserializeBlock(err.to_string()))?;
 
         Ok(block)
     }

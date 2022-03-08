@@ -1,7 +1,8 @@
-use generic_array::{typenum::U8, GenericArray};
-
 use super::VariableSizeTupleFile;
-use crate::file::{FixedSizeTupleFile, TupleFile};
+use crate::{
+    file::{FixedSizeTupleFile, TupleFile},
+    AsByteVec, FromByteSlice,
+};
 
 #[test]
 fn grow_mmap_from_zero_capacity() {
@@ -95,23 +96,28 @@ fn block_insert_get_update() {
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct TestInt(u64);
 
-impl From<GenericArray<u8, U8>> for TestInt {
-    fn from(data: GenericArray<u8, U8>) -> Self {
-        let v = u64::from_le_bytes(data.into());
-        TestInt(v)
+impl AsByteVec for TestInt {
+    fn as_byte_vec(&self) -> Vec<u8> {
+        self.0.to_le_bytes().into()
     }
 }
 
-impl Into<GenericArray<u8, U8>> for TestInt {
-    fn into(self) -> GenericArray<u8, U8> {
-        let d = self.0.to_le_bytes();
-        GenericArray::clone_from_slice(&d[0..8])
+impl FromByteSlice for TestInt {
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized,
+    {
+        let slice: &[u8] = slice.as_ref();
+        let bytes: [u8; 8] = slice.try_into()?;
+        Ok(TestInt(u64::from_le_bytes(bytes)))
     }
 }
 
 #[test]
 fn block_insert_get_update_fixed_size() {
-    let mut m = FixedSizeTupleFile::<TestInt, U8>::with_capacity(128).unwrap();
+    let mut m = FixedSizeTupleFile::<TestInt>::with_capacity(128, 8).unwrap();
     assert_eq!(128, m.mmap.len());
 
     // Check that we can't allocate block with a size different to 8

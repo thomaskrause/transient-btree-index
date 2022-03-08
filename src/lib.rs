@@ -47,6 +47,18 @@ use memmap2::MmapMut;
 const KB: usize = 1 << 10;
 const PAGE_SIZE: usize = 4 * KB;
 
+pub trait AsByteVec {
+    fn as_byte_vec(&self) -> Vec<u8>;
+}
+
+pub trait FromByteSlice {
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized;
+}
+
 fn create_mmap(capacity: usize) -> error::Result<MmapMut> {
     let file = tempfile::tempfile()?;
     if capacity > 0 {

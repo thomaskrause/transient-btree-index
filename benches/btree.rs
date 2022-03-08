@@ -1,24 +1,29 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use fake::{Fake, Faker, StringFaker};
-use generic_array::{typenum::U8, GenericArray};
 use serde_derive::{Deserialize, Serialize};
-use transient_btree_index::{BtreeConfig, BtreeIndex};
+use transient_btree_index::{AsByteVec, BtreeConfig, BtreeIndex, FromByteSlice};
 
 const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd, Eq, Ord)]
 struct FixedKey(u64);
 
-impl Into<GenericArray<u8, U8>> for FixedKey {
-    fn into(self) -> GenericArray<u8, U8> {
+impl AsByteVec for FixedKey {
+    fn as_byte_vec(&self) -> Vec<u8> {
         self.0.to_le_bytes().into()
     }
 }
 
-impl From<GenericArray<u8, U8>> for FixedKey {
-    fn from(bytes: GenericArray<u8, U8>) -> Self {
-        let bytes: [u8; 8] = bytes.into();
-        FixedKey(u64::from_le_bytes(bytes))
+impl FromByteSlice for FixedKey {
+    fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
+        slice: &T,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>>
+    where
+        Self: Sized,
+    {
+        let slice: &[u8] = slice.as_ref();
+        let bytes: [u8; 8] = slice.try_into()?;
+        Ok(FixedKey(u64::from_le_bytes(bytes)))
     }
 }
 
@@ -29,11 +34,12 @@ fn fixed_vs_variable(c: &mut Criterion) {
     let name_faker = fake::faker::name::en::Name();
 
     g.bench_function("insert fixed size key", |b| {
-        let mut btree: BtreeIndex<FixedKey, String> = BtreeIndex::fixed_key_size_with_capacity(
-            BtreeConfig::default().max_key_size(8).max_value_size(64),
-            n_entries,
-        )
-        .unwrap();
+        let mut btree: BtreeIndex<FixedKey, String> =
+            BtreeIndex::fixed_key_size_with_capacity::<generic_array::typenum::U8>(
+                BtreeConfig::default().max_key_size(8).max_value_size(64),
+                n_entries,
+            )
+            .unwrap();
 
         // Insert the initial strings
         for _ in 0..n_entries {
