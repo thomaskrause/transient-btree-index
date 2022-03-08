@@ -1,7 +1,7 @@
 use super::VariableSizeTupleFile;
 use crate::{
     file::{FixedSizeTupleFile, TupleFile},
-    AsByteVec, FromByteSlice,
+    AsByteArray,
 };
 
 #[test]
@@ -96,13 +96,10 @@ fn block_insert_get_update() {
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct TestInt(u64);
 
-impl AsByteVec for TestInt {
+impl AsByteArray for TestInt {
     fn as_byte_vec(&self) -> Vec<u8> {
         self.0.to_le_bytes().into()
     }
-}
-
-impl FromByteSlice for TestInt {
     fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
         slice: &T,
     ) -> std::result::Result<Self, Box<dyn std::error::Error>>
@@ -113,11 +110,15 @@ impl FromByteSlice for TestInt {
         let bytes: [u8; 8] = slice.try_into()?;
         Ok(TestInt(u64::from_le_bytes(bytes)))
     }
+
+    fn serialized_size() -> usize {
+        8
+    }
 }
 
 #[test]
 fn block_insert_get_update_fixed_size() {
-    let mut m = FixedSizeTupleFile::<TestInt>::with_capacity(128, 8).unwrap();
+    let mut m = FixedSizeTupleFile::<TestInt>::with_capacity(128).unwrap();
     assert_eq!(128, m.mmap.len());
 
     // Check that we can't allocate block with a size different to 8

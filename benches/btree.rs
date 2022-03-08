@@ -1,20 +1,18 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use fake::{Fake, Faker, StringFaker};
 use serde_derive::{Deserialize, Serialize};
-use transient_btree_index::{AsByteVec, BtreeConfig, BtreeIndex, FromByteSlice};
+use transient_btree_index::{AsByteArray, BtreeConfig, BtreeIndex};
 
 const ASCII: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd, Eq, Ord)]
 struct FixedKey(u64);
 
-impl AsByteVec for FixedKey {
+impl AsByteArray for FixedKey {
     fn as_byte_vec(&self) -> Vec<u8> {
         self.0.to_le_bytes().into()
     }
-}
 
-impl FromByteSlice for FixedKey {
     fn from_byte_slice<T: AsRef<[u8]> + ?Sized>(
         slice: &T,
     ) -> std::result::Result<Self, Box<dyn std::error::Error>>
@@ -24,6 +22,10 @@ impl FromByteSlice for FixedKey {
         let slice: &[u8] = slice.as_ref();
         let bytes: [u8; 8] = slice.try_into()?;
         Ok(FixedKey(u64::from_le_bytes(bytes)))
+    }
+
+    fn serialized_size() -> usize {
+        8
     }
 }
 
