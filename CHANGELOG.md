@@ -14,8 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Splitting a node could lead to a huge number of keys being re-allocated, 
+- Splitting a node or moving entries to right at insertion 
+  could lead to a huge number of keys being re-allocated, 
   instead of simply re-using the existing key id.
+  This behavior caused the disk usage to be much larger than actually needed.
 
 ## [0.2.0] - 2022-02-18
 
