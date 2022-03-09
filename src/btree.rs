@@ -316,10 +316,10 @@ where
                     // Make space for the new key by moving the other items to the right
                     let number_of_node_keys = self.nodes.number_of_keys(node_id)?;
                     for i in ((i + 1)..=number_of_node_keys).rev() {
-                        self.nodes.set_key(
+                        self.nodes.set_key_id(
                             node_id,
                             i,
-                            self.nodes.get_key(node_id, i - 1)?.as_ref(),
+                            self.nodes.get_key_id(node_id, i - 1)?,
                         )?;
                         self.nodes.set_payload(
                             node_id,
@@ -328,7 +328,7 @@ where
                         )?;
                     }
                     // Insert new key with payload at the given position
-                    self.nodes.set_key(node_id, i, key)?;
+                    self.nodes.set_key_value(node_id, i, key)?;
                     self.nodes.set_payload(node_id, i, payload_id.try_into()?)?;
                     self.nr_elements += 1;
                     self.last_inserted_node_id = node_id;

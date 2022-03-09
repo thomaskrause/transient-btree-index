@@ -287,20 +287,50 @@ where
     }
 
     pub fn get_key(&self, node_id: u64, i: usize) -> Result<Arc<K>> {
+        let key_id = self.get_key_id(node_id, i)?;
+        let result = self.keys.get(key_id.try_into()?)?;
+        Ok(result)
+    }
+
+    pub fn get_key_id(&self, node_id: u64, i: usize) -> Result<u64> {
         let view = self.get(node_id)?;
         let n: usize = view.num_keys().read() as usize;
         if i < n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
             let key_id: u64 =
                 u64::from_le_bytes(view.keys().data()[offset..(offset + 8)].try_into()?);
-            let result = self.keys.get(key_id.try_into()?)?;
-            Ok(result)
+            Ok(key_id)
         } else {
             Err(Error::KeyIndexOutOfBounds { idx: i, len: n })
         }
     }
 
-    pub fn set_key(&mut self, node_id: u64, i: usize, key: &K) -> Result<()> {
+    /// Sets the key for the given index `i` in the node `node_id`.
+    pub fn set_key_id(&mut self, node_id: u64, i: usize, key_id: u64) -> Result<()> {
+        let n: usize = self.get(node_id)?.num_keys().read() as usize;
+        if i <= n && i < MAX_NUMBER_KEYS {
+            let offset = i * 8;
+
+            let key_id = key_id.to_le_bytes();
+            let mut view = self.get_mut(node_id)?;
+
+            view.keys_mut().data_mut()[offset..(offset + 8)].copy_from_slice(&key_id);
+
+            if i == n {
+                // The key was inserted at the end of the list
+                let mut view = self.get_mut(node_id)?;
+                let n: u64 = (n + 1).try_into()?;
+                view.num_keys_mut().write(n);
+            }
+            Ok(())
+        } else {
+            Err(Error::KeyIndexOutOfBounds { idx: i, len: n })
+        }
+    }
+
+    /// Sets the key value for the given index `i` in the node `node_id`.
+    /// This will allocate a new block for the key.
+    pub fn set_key_value(&mut self, node_id: u64, i: usize, key: &K) -> Result<()> {
         let n: usize = self.get(node_id)?.num_keys().read() as usize;
         if i <= n && i < MAX_NUMBER_KEYS {
             let offset = i * 8;
@@ -421,7 +451,7 @@ where
 
         // The last element of the existing node is dangling without a child node,
         // use it as the key for the parent node
-        let split_key = self.get_key(existing_node, split_at - 1)?;
+        let split_key = self.get_key_id(existing_node, split_at - 1)?;
         let split_payload = self.get_payload(existing_node, split_at - 1)?;
         let mut existing_node_view = self.get_mut(existing_node)?;
         existing_node_view
@@ -430,11 +460,7 @@ where
 
         // Make space for the new entry in the parent node
         for i in ((child_idx + 1)..=self.number_of_keys(parent_node_id)?).rev() {
-            self.set_key(
-                parent_node_id,
-                i,
-                self.get_key(parent_node_id, i - 1)?.as_ref(),
-            )?;
+            self.set_key_id(parent_node_id, i, self.get_key_id(parent_node_id, i - 1)?)?;
             self.set_payload(parent_node_id, i, self.get_payload(parent_node_id, i - 1)?)?;
         }
         for i in ((child_idx + 1)..=self.number_of_children(parent_node_id)?).rev() {
@@ -446,7 +472,7 @@ where
         }
 
         // Insert the new child entry, the key and the payload into the parent node
-        self.set_key(parent_node_id, child_idx, &split_key)?;
+        self.set_key_id(parent_node_id, child_idx, split_key)?;
         self.set_payload(parent_node_id, child_idx, split_payload)?;
         self.set_child_node(parent_node_id, child_idx + 1, new_node_id)?;
 
@@ -460,7 +486,7 @@ where
 
         // The last element of the previous root node is dangling without a child node,
         // use it as the key for the parent node
-        let split_key = self.get_key(old_root_id, split_at - 1)?;
+        let split_key = self.get_key_id(old_root_id, split_at - 1)?;
         let split_payload = self.get_payload(old_root_id, split_at - 1)?;
         let mut existing_node_view = self.get_mut(old_root_id)?;
         existing_node_view
@@ -468,7 +494,7 @@ where
             .write((split_at - 1).try_into()?);
 
         // Insert the new child entry, the key and the payload into the parent node
-        self.set_key(new_root_id, 0, &split_key)?;
+        self.set_key_id(new_root_id, 0, split_key)?;
         self.set_payload(new_root_id, 0, split_payload)?;
         self.set_child_node(new_root_id, 0, old_root_id)?;
         self.set_child_node(new_root_id, 1, new_node_id)?;
@@ -484,10 +510,10 @@ where
 
             // Copy the right half of the keys, payload and child nodes to the new node
             for i in split_at..n {
-                self.set_key(
+                self.set_key_id(
                     target_node_id,
                     i - split_at,
-                    self.get_key(source_node_id, i)?.as_ref(),
+                    self.get_key_id(source_node_id, i)?,
                 )?;
                 self.set_payload(
                     target_node_id,

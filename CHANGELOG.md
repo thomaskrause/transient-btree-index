@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an optimized implementation can be used. Configure it in `BtreeConfig` 
   with the `fixed_key_size` and `fixed_value_size` methods.
 
+### Fixed
+
+- Splitting a node could lead to a huge number of keys being re-allocated, 
+  instead of simply re-using the existing key id.
 
 ## [0.2.0] - 2022-02-18
 
