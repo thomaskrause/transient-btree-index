@@ -74,7 +74,9 @@ impl BtreeConfig {
 
     /// Set the fixed size in bytes for each key.
     ///
-    /// If serializing the key needs a fixed number of bytes, a more efficient internal implementation can be used.
+    /// If serializing the key needs a fixed number of bytes 
+    /// (assuming [bincode](https://crates.io/crates/bincode) is used with a fixed integer encoding), 
+    /// a more efficient internal implementation will be used.
     pub fn fixed_key_size(mut self, key_size: usize) -> Self {
         self.key_size = TypeSize::Fixed(key_size);
         self
@@ -92,7 +94,9 @@ impl BtreeConfig {
 
     /// Set the fixed size in bytes for each value.
     ///
-    /// If serializing the value needs a fixed number of bytes,  a more efficient internal implementation can be used.
+    /// If serializing the value needs a fixed number of bytes 
+    /// (assuming [bincode](https://crates.io/crates/bincode) is used with a fixed integer encoding),  
+    /// a more efficient internal implementation will be used.
     pub fn fixed_value_size(mut self, value_size: usize) -> Self {
         self.value_size = TypeSize::Fixed(value_size);
         self

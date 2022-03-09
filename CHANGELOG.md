@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The former ones might only be written out to swap, which is a problem on
   systems with small swap sizes.
 
+### Added
+
+- For types that generate fixed length byte array when serde and bincode is used, 
+  an optimized implementation can be used. Configure it in `BtreeConfig` 
+  with the `fixed_key_size` and `fixed_value_size` methods.
+
 ### Fixed
 
 - The block cache could grow indefinitely.
