@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2022-03-10
+
 ### Added
 
 - For types that generate fixed length byte array when serde and bincode is used, 
