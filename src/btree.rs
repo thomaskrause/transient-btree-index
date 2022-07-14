@@ -267,7 +267,7 @@ where
         let start = range.start_bound().cloned();
         let end = range.end_bound().cloned();
         let mut stack = self.nodes.find_range(self.root_id, range);
-        // The range is sorted by smallest first, but poping values from the end of the
+        // The range is sorted by smallest first, but popping values from the end of the
         // stack is more effective
         stack.reverse();
 
@@ -277,6 +277,21 @@ where
             end,
             nodes: &self.nodes,
             values: self.values.as_ref(),
+            phantom: PhantomData,
+        };
+        Ok(result)
+    }
+
+    pub fn into_iter(self) -> Result<BtreeIntoIter<K, V>> {
+        let mut stack = self.nodes.find_range(self.root_id, ..);
+        // The range is sorted by smallest first, but popping values from the end of the
+        // stack is more effective
+        stack.reverse();
+
+        let result = BtreeIntoIter {
+            stack,
+            nodes: self.nodes,
+            values: self.values,
             phantom: PhantomData,
         };
         Ok(result)
@@ -411,6 +426,66 @@ where
                             let mut new_elements = self
                                 .nodes
                                 .find_range(c, (self.start.clone(), self.end.clone()));
+                            new_elements.reverse();
+                            self.stack.extend(new_elements.into_iter());
+                        }
+                        Err(e) => return Some(Err(e)),
+                    }
+                }
+                StackEntry::Key { node, idx } => match self.get_key_value_tuple(node, idx) {
+                    Ok(result) => {
+                        return Some(Ok(result));
+                    }
+                    Err(e) => {
+                        return Some(Err(e));
+                    }
+                },
+            }
+        }
+
+        None
+    }
+}
+
+pub struct BtreeIntoIter<K, V>
+where
+    K: Serialize + DeserializeOwned + Clone,
+    V: Sync,
+{
+    nodes: NodeFile<K>,
+    values: Box<dyn TupleFile<V>>,
+    stack: Vec<node::StackEntry>,
+    phantom: PhantomData<V>,
+}
+
+impl<K, V> BtreeIntoIter<K, V>
+where
+    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    V: Clone + Serialize + DeserializeOwned + Send + Sync,
+{
+    fn get_key_value_tuple(&self, node: u64, idx: usize) -> Result<(K, V)> {
+        let payload_id = self.nodes.get_payload(node, idx)?;
+        let value = self.values.get_owned(payload_id.try_into()?)?;
+        let key = self.nodes.get_key_owned(node, idx)?;
+        Ok((key, value))
+    }
+}
+
+impl<K, V> Iterator for BtreeIntoIter<K, V>
+where
+    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    V: Clone + Serialize + DeserializeOwned + Send + Sync,
+{
+    type Item = Result<(K, V)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(e) = self.stack.pop() {
+            match e {
+                StackEntry::Child { parent, idx } => {
+                    match self.nodes.get_child_node(parent, idx) {
+                        Ok(c) => {
+                            // Add all entries for this child node on the stack
+                            let mut new_elements = self.nodes.find_range(c, ..);
                             new_elements.reverse();
                             self.stack.extend(new_elements.into_iter());
                         }
