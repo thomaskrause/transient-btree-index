@@ -89,6 +89,24 @@ where
     }
 }
 
+fn check_slice_order<K, V>(c: &[(K,V)])
+where
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+{
+    let mut previous: Option<K> = None;
+    for (k, _v) in c {
+        if let Some(previous) = previous {
+            if &previous >= &k {
+                dbg!(&previous, &k);
+            }
+            assert_eq!(Ordering::Less, previous.cmp(&k));
+        }
+
+        previous = Some(k.clone());
+    }
+}
+
 #[test]
 fn insert_get_static_size() {
     let nr_entries = 2000;
@@ -191,6 +209,7 @@ fn range_query_dense() {
     check_order(&t, ..);
 }
 
+
 #[test]
 fn range_query_sparse() {
     let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
@@ -223,6 +242,51 @@ fn range_query_sparse() {
     check_order(&t, 40..);
     check_order(&t, ..1024);
     check_order(&t, ..=1024);
+}
+
+#[test]
+fn into_iterator_dense() {
+    let nr_entries = 2000;
+
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 2000).unwrap();
+
+    for i in 0..nr_entries {
+        t.insert(i, i).unwrap();
+    }
+
+    print_tree(&t).unwrap();
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.into_iter().unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(2000, result.len());
+    for i in 0..nr_entries {
+        assert_eq!((i, i), result[i as usize]);
+    }
+}
+
+#[test]
+fn into_iterator_sparse() {
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: BtreeIndex<u64, u64> = BtreeIndex::with_capacity(config, 200).unwrap();
+
+    for i in (0..2000).step_by(10) {
+        t.insert(i, i).unwrap();
+    }
+
+    assert_eq!(200, t.len());
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.into_iter().unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(200, result.len());
+    assert_eq!((0, 0), result[0]);
+    assert_eq!((1990, 1990), result[199]);
+    check_slice_order(&result);
+
 }
 
 #[test]
