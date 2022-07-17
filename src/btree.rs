@@ -282,6 +282,26 @@ where
         Ok(result)
     }
 
+    /// Return an iterator over all entries and consumes the B-tree index.
+    /// 
+    /// # Example
+    ///
+    /// ```rust
+    /// use transient_btree_index::{BtreeConfig, BtreeIndex, Error};
+    ///
+    /// fn main() -> std::result::Result<(), Error> {
+    ///     let mut b = BtreeIndex::<u16,u16>::with_capacity(BtreeConfig::default(), 10)?;
+    ///     b.insert(1,2)?;
+    ///     b.insert(200, 4)?;
+    ///     b.insert(20, 3)?;
+    ///
+    ///     for e in b.into_iter()? {
+    ///         let (k, v) = e?;
+    ///         dbg!(k, v);
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn into_iter(self) -> Result<BtreeIntoIter<K, V>> {
         let mut stack = self.nodes.find_range(self.root_id, ..);
         // The range is sorted by smallest first, but popping values from the end of the
