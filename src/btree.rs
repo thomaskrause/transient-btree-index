@@ -283,7 +283,7 @@ where
     }
 
     /// Return an iterator over all entries and consumes the B-tree index.
-    /// 
+    ///
     /// # Example
     ///
     /// ```rust

@@ -89,7 +89,7 @@ where
     }
 }
 
-fn check_slice_order<K, V>(c: &[(K,V)])
+fn check_slice_order<K, V>(c: &[(K, V)])
 where
     K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync + 'static,
     V: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -209,7 +209,6 @@ fn range_query_dense() {
     check_order(&t, ..);
 }
 
-
 #[test]
 fn range_query_sparse() {
     let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
@@ -286,7 +285,6 @@ fn into_iterator_sparse() {
     assert_eq!((0, 0), result[0]);
     assert_eq!((1990, 1990), result[199]);
     check_slice_order(&result);
-
 }
 
 #[test]
