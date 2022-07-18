@@ -146,6 +146,14 @@ fn insert_get_static_size() {
     assert_eq!(None, t.get(&nr_entries).unwrap());
     assert_eq!(false, t.contains_key(&5000).unwrap());
     assert_eq!(None, t.get(&5000).unwrap());
+
+    // also test a simple swap
+    t.swap(&500, &1000).unwrap();
+    assert_eq!(Some(500), t.get(&1000).unwrap());
+    assert_eq!(Some(1000), t.get(&500).unwrap());
+    t.swap(&500, &1000).unwrap();
+    assert_eq!(Some(500), t.get(&500).unwrap());
+    assert_eq!(Some(1000), t.get(&1000).unwrap());   
 }
 
 #[test]
@@ -373,6 +381,7 @@ fn insert_twice_at_split_point() {
 
     assert_eq!(m, t);
 }
+
 
 #[test]
 fn get_after_relocation() {
