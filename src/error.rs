@@ -31,4 +31,6 @@ pub enum Error {
     SliceConversion(#[from] TryFromSliceError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[error("Non-existing key")]
+    NonExistingKey,
 }

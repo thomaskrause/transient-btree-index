@@ -317,6 +317,24 @@ where
         Ok(result)
     }
 
+    /// Swaps the values for the given keys.
+    pub fn swap(&mut self, a: &K, b: &K) -> Result<()> {
+        // Get the node ids and position in the node for both keys,
+        // fail when they do not exist
+        let (a_node, a_pos) = self.search(self.root_id, a)?.ok_or(Error::NonExistingKey)?;
+        let (b_node, b_pos) = self.search(self.root_id, b)?.ok_or(Error::NonExistingKey)?;
+
+        // Get the payload IDs for the node positions
+        let a_payload = self.nodes.get_payload(a_node, a_pos)?;
+        let b_payload = self.nodes.get_payload(b_node, b_pos)?;
+
+        // Swap the payload IDs at these positions
+        self.nodes.set_payload(a_node, a_pos, b_payload)?;
+        self.nodes.set_payload(b_node, b_pos, a_payload)?;
+
+        Ok(())
+    }
+
     fn search(&self, node_id: u64, key: &K) -> Result<Option<(u64, usize)>> {
         match self.nodes.binary_search(node_id, key)? {
             SearchResult::Found(i) => Ok(Some((node_id, i))),
