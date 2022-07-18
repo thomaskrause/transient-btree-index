@@ -423,8 +423,8 @@ where
         while left < right {
             let mid = left + size / 2;
 
-            let mid_key = self.get_key(node_id, mid)?;
-            let cmp = mid_key.as_ref().cmp(key);
+            let mid_key = self.get_key_owned(node_id, mid)?;
+            let cmp = mid_key.cmp(key);
 
             if cmp == Ordering::Less {
                 left = mid + 1;
