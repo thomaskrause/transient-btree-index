@@ -1,7 +1,7 @@
 use std::{
+    cell::RefCell,
     marker::PhantomData,
     ops::{Bound, RangeBounds},
-    sync::atomic::Ordering::SeqCst,
 };
 
 use crate::{
@@ -12,7 +12,6 @@ use crate::{
 use serde::{de::DeserializeOwned, Serialize};
 
 use self::node::{NodeFile, SearchResult, StackEntry, MAX_NUMBER_KEYS};
-use std::sync::atomic::AtomicU64;
 
 mod node;
 
@@ -33,7 +32,6 @@ where
     values: Box<dyn TupleFile<V>>,
     root_id: u64,
     last_inserted_node_id: u64,
-    last_read_node_id: AtomicU64,
     order: usize,
     nr_elements: usize,
 }
@@ -172,34 +170,48 @@ where
             order: config.order,
             nr_elements: 0,
             last_inserted_node_id: root_id,
-            last_read_node_id: AtomicU64::new(root_id),
         })
     }
 
     /// Searches for a key in the index and returns the value if found.
     pub fn get(&self, key: &K) -> Result<Option<V>> {
+        thread_local! {
+            // Since this cell is per thread and can't be accessed outside of
+            // this function, is always possible to get a mutable reference to this cell.
+            static LAST_READ_NODE_ID: RefCell<u64>  = RefCell::new(0);
+        }
+
         let mut search_root_node_id = self.root_id;
 
         // Try the node that was read last first in case the the read operation
         // is executed on the next ID. If we can't get the lock, just ignore the
         // hint and search from the top root node.
-        let last_read_node_id = self.last_read_node_id.load(SeqCst);
-        let last_read_number_keys = self.nodes.number_of_keys(last_read_node_id).unwrap_or(0);
-        if last_read_number_keys > 0 {
-            let start = self.nodes.get_key(last_read_node_id, 0)?;
-            let end = self
-                .nodes
-                .get_key(last_read_node_id, last_read_number_keys - 1)?;
-
-            if key >= start.as_ref() && key <= end.as_ref() {
-                search_root_node_id = last_read_node_id;
+        LAST_READ_NODE_ID.with(|n| {
+            if let Ok(last_read_node_id) = n.try_borrow() {
+                let last_read_number_keys =
+                    self.nodes.number_of_keys(*last_read_node_id).unwrap_or(0);
+                if last_read_number_keys > 0 {
+                    if let (Ok(start), Ok(end)) = (
+                        self.nodes.get_key(*last_read_node_id, 0),
+                        self.nodes
+                            .get_key(*last_read_node_id, last_read_number_keys - 1),
+                    ) {
+                        if key >= start.as_ref() && key <= end.as_ref() {
+                            search_root_node_id = *last_read_node_id;
+                        }
+                    }
+                }
             }
-        }
+        });
 
         if let Some((node, i)) = self.search(search_root_node_id, key)? {
             let payload_id = self.nodes.get_payload(node, i)?;
             let v = self.values.get_owned(payload_id.try_into()?)?;
-            self.last_read_node_id.store(node, SeqCst);
+            LAST_READ_NODE_ID.with(|last_read_node_id| {
+                if let Ok(mut last_read_node_id) = last_read_node_id.try_borrow_mut() {
+                    *last_read_node_id = node;
+                }
+            });
             Ok(Some(v))
         } else {
             Ok(None)
