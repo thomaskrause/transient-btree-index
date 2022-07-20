@@ -16,6 +16,34 @@ use super::TypeSize;
 
 mod node;
 
+pub trait KeyType: Sized + Ord + Eq + Copy {
+    fn into_bytes(self) -> Vec<u8>;
+    fn from_bytes(bytes: &[u8]) -> Result<Self>;
+}
+
+macro_rules! impl_key_type {
+    ( $type:ident ) => {
+        impl KeyType for $type {
+            fn into_bytes(self) -> Vec<u8> {
+                self.to_le_bytes().into()
+            }
+
+            fn from_bytes(bytes: &[u8]) -> Result<Self> {
+                Ok(Self::from_le_bytes(bytes.try_into()?))
+            }
+        }
+    };
+}
+
+impl_key_type!(u8);
+impl_key_type!(u16);
+impl_key_type!(u32);
+impl_key_type!(u64);
+impl_key_type!(i8);
+impl_key_type!(i16);
+impl_key_type!(i32);
+impl_key_type!(i64);
+
 /// B-tree index backed by temporary memory mapped files.
 ///
 /// Operations similar to the interface of [`std::collections::BTreeMap`] are implemented.
@@ -24,9 +52,9 @@ mod node;
 ///
 /// Since serde is used to serialize the keys and values, the types need to implement the [`Serialize`] and [`DeserializeOwned`] traits.
 /// Also, only keys and values that implement [`Clone`] can be used.
-pub struct BtreeIndex<K, V>
+pub struct InlineKeyBtreeIndex<K, V>
 where
-    K: Serialize + DeserializeOwned + PartialOrd + Clone,
+    K: KeyType,
     V: Serialize + DeserializeOwned + Clone + Sync,
 {
     nodes: node::NodeFile<K>,
@@ -37,27 +65,30 @@ where
     nr_elements: usize,
 }
 
-impl<'a, K, V> BtreeIndex<K, V>
+impl<'a, K, V> InlineKeyBtreeIndex<K, V>
 where
-    K: 'a + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
+    K: 'a + KeyType,
     V: 'a + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
 }
 
-impl<K, V> BtreeIndex<K, V>
+impl<K, V> InlineKeyBtreeIndex<K, V>
 where
-    K: 'static + Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Send + Sync,
+    K: 'static + KeyType,
     V: 'static + Serialize + DeserializeOwned + Clone + Send + Sync,
 {
     /// Create a new instance with the given configuration and capacity in number of elements.
-    pub fn with_capacity(config: BtreeConfig, capacity: usize) -> Result<BtreeIndex<K, V>> {
+    pub fn with_capacity(
+        config: BtreeConfig,
+        capacity: usize,
+    ) -> Result<InlineKeyBtreeIndex<K, V>> {
         if config.order < 2 {
             return Err(Error::OrderTooSmall(config.order));
         } else if config.order > MAX_NUMBER_KEYS / 2 {
             return Err(Error::OrderTooLarge(config.order));
         }
 
-        let mut nodes = NodeFile::with_capacity(capacity, &config)?;
+        let mut nodes = NodeFile::with_capacity(capacity)?;
 
         let values: Box<dyn TupleFile<V>> = match config.value_size {
             TypeSize::Estimated(est_max_value_size) => {
@@ -79,7 +110,7 @@ where
         // Always add an empty root node
         let root_id = nodes.allocate_new_node()?;
 
-        Ok(BtreeIndex {
+        Ok(InlineKeyBtreeIndex {
             root_id,
             nodes,
             values,
@@ -121,11 +152,8 @@ where
                 .nodes
                 .get_key(self.last_inserted_node_id, last_inserted_number_keys - 1)?;
 
-            if &key >= start.as_ref()
-                && &key <= end.as_ref()
-                && last_inserted_number_keys < (2 * self.order) - 1
-            {
-                let expected = self.insert_nonfull(self.last_inserted_node_id, &key, value)?;
+            if key >= start && key <= end && last_inserted_number_keys < (2 * self.order) - 1 {
+                let expected = self.insert_nonfull(self.last_inserted_node_id, key, value)?;
                 return Ok(expected);
             }
         }
@@ -135,11 +163,11 @@ where
             // Create a new root node, because the current will become full
             let new_root_id = self.nodes.split_root_node(self.root_id, self.order)?;
 
-            let existing = self.insert_nonfull(new_root_id, &key, value)?;
+            let existing = self.insert_nonfull(new_root_id, key, value)?;
             self.root_id = new_root_id;
             Ok(existing)
         } else {
-            let existing = self.insert_nonfull(self.root_id, &key, value)?;
+            let existing = self.insert_nonfull(self.root_id, key, value)?;
             Ok(existing)
         }
     }
@@ -267,8 +295,8 @@ where
         }
     }
 
-    fn insert_nonfull(&mut self, node_id: u64, key: &K, value: V) -> Result<Option<V>> {
-        match self.nodes.binary_search(node_id, key)? {
+    fn insert_nonfull(&mut self, node_id: u64, key: K, value: V) -> Result<Option<V>> {
+        match self.nodes.binary_search(node_id, &key)? {
             SearchResult::Found(i) => {
                 // Key already exists, replace the payload
                 let payload_id = self.nodes.get_payload(node_id, i)?.try_into()?;
@@ -286,11 +314,8 @@ where
                     // Make space for the new key by moving the other items to the right
                     let number_of_node_keys = self.nodes.number_of_keys(node_id)?;
                     for i in ((i + 1)..=number_of_node_keys).rev() {
-                        self.nodes.set_key_id(
-                            node_id,
-                            i,
-                            self.nodes.get_key_id(node_id, i - 1)?,
-                        )?;
+                        self.nodes
+                            .set_key(node_id, i, self.nodes.get_key(node_id, i - 1)?)?;
                         self.nodes.set_payload(
                             node_id,
                             i,
@@ -298,7 +323,7 @@ where
                         )?;
                     }
                     // Insert new key with payload at the given position
-                    self.nodes.set_key_value(node_id, i, key)?;
+                    self.nodes.set_key(node_id, i, key)?;
                     self.nodes.set_payload(node_id, i, payload_id.try_into()?)?;
                     self.nr_elements += 1;
                     self.last_inserted_node_id = node_id;
@@ -311,7 +336,7 @@ where
                     if self.nodes.number_of_keys(child_id)? == (2 * self.order) - 1 {
                         let (left, right) = self.nodes.split_child(node_id, i, self.order)?;
                         let node_key = self.nodes.get_key(node_id, i)?;
-                        if key == node_key.as_ref() {
+                        if key == node_key {
                             // Key already exists and was added to the parent node, replace the payload
                             let payload_id: usize =
                                 self.nodes.get_payload(node_id, i)?.try_into()?;
@@ -319,7 +344,7 @@ where
                             self.values.put(payload_id, &value)?;
                             self.last_inserted_node_id = node_id;
                             Ok(Some(previous_payload))
-                        } else if key > node_key.as_ref() {
+                        } else if key > node_key {
                             // Key is now larger, use the newly created right child
                             let existing = self.insert_nonfull(right, key, value)?;
                             Ok(existing)
@@ -340,7 +365,7 @@ where
 
 pub struct Range<'a, K, V>
 where
-    K: Serialize + DeserializeOwned + Clone,
+    K: KeyType,
     V: Sync,
 {
     start: Bound<K>,
@@ -353,20 +378,20 @@ where
 
 impl<'a, K, V> Range<'a, K, V>
 where
-    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    K: KeyType,
     V: Clone + Serialize + DeserializeOwned + Send + Sync,
 {
     fn get_key_value_tuple(&self, node: u64, idx: usize) -> Result<(K, V)> {
         let payload_id = self.nodes.get_payload(node, idx)?;
         let value = self.values.get_owned(payload_id.try_into()?)?;
-        let key = self.nodes.get_key_owned(node, idx)?;
+        let key = self.nodes.get_key(node, idx)?;
         Ok((key, value))
     }
 }
 
 impl<'a, K, V> Iterator for Range<'a, K, V>
 where
-    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    K: KeyType,
     V: Clone + Serialize + DeserializeOwned + Send + Sync,
 {
     type Item = Result<(K, V)>;
@@ -404,7 +429,7 @@ where
 
 pub struct BtreeIntoIter<K, V>
 where
-    K: Serialize + DeserializeOwned + Clone,
+    K: KeyType,
     V: Sync,
 {
     nodes: NodeFile<K>,
@@ -415,20 +440,20 @@ where
 
 impl<K, V> BtreeIntoIter<K, V>
 where
-    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    K: KeyType,
     V: Clone + Serialize + DeserializeOwned + Send + Sync,
 {
     fn get_key_value_tuple(&self, node: u64, idx: usize) -> Result<(K, V)> {
         let payload_id = self.nodes.get_payload(node, idx)?;
         let value = self.values.get_owned(payload_id.try_into()?)?;
-        let key = self.nodes.get_key_owned(node, idx)?;
+        let key = self.nodes.get_key(node, idx)?;
         Ok((key, value))
     }
 }
 
 impl<K, V> Iterator for BtreeIntoIter<K, V>
 where
-    K: Clone + Serialize + DeserializeOwned + Ord + Send + Sync,
+    K: KeyType,
     V: Clone + Serialize + DeserializeOwned + Send + Sync,
 {
     type Item = Result<(K, V)>;

@@ -1,8 +1,5 @@
-
-mod node;
+pub mod inline_keys;
 pub mod outside_keys;
-
-
 
 #[derive(Clone)]
 pub enum TypeSize {
@@ -88,4 +85,3 @@ impl BtreeConfig {
         self
     }
 }
-

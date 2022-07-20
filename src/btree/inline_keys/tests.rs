@@ -1,0 +1,423 @@
+use debug_tree::TreeBuilder;
+use fake::{Fake, Faker};
+use rand::SeedableRng;
+use rayon::prelude::*;
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
+
+use super::*;
+
+fn print_tree<K, V>(t: &InlineKeyBtreeIndex<K, V>) -> Result<()>
+where
+    K: KeyType + Debug,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync,
+{
+    let mut b = TreeBuilder::new();
+
+    print_tree_node(&mut b, t, t.root_id)?;
+
+    b.print();
+    Ok(())
+}
+
+fn print_tree_node<K, V>(
+    builder: &mut TreeBuilder,
+    t: &InlineKeyBtreeIndex<K, V>,
+    node: u64,
+) -> Result<()>
+where
+    K: KeyType + Debug,
+    V: Serialize + DeserializeOwned + Clone + Sync,
+{
+    let mut branch = builder.add_branch(&format!(
+        "(node {} with {} keys and {} children)",
+        node,
+        t.nodes.number_of_keys(node)?,
+        t.nodes.number_of_children(node)?
+    ));
+    if t.nodes.is_leaf(node)? {
+        // Only print the keys
+        for i in 0..t.nodes.number_of_keys(node)? {
+            builder.add_leaf(&format!("{:?} ({}. key)", t.nodes.get_key(node, i)?, i));
+        }
+    } else {
+        // Print both the keys and the child nodes
+        let max_index = t
+            .nodes
+            .number_of_children(node)?
+            .max(t.nodes.number_of_keys(node)?);
+        for i in 0..max_index {
+            if i < t.nodes.number_of_children(node)? {
+                print_tree_node(builder, t, t.nodes.get_child_node(node, i)?)?;
+            } else {
+                builder.add_leaf(&format!("ERROR: no child at index {}", i));
+            }
+            if i < t.nodes.number_of_keys(node)? {
+                builder.add_leaf(&format!("{:?} ({}. key)", t.nodes.get_key(node, i)?, i));
+            } else if i < t.nodes.number_of_children(node)? - 1 {
+                builder.add_leaf(&format!("ERROR: no key at index {}", i));
+            }
+        }
+    }
+    branch.release();
+
+    Ok(())
+}
+
+fn check_order<K, V, R>(t: &InlineKeyBtreeIndex<K, V>, range: R)
+where
+    K: KeyType + Debug + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    R: RangeBounds<K>,
+{
+    let mut previous: Option<K> = None;
+    for e in t.range(range).unwrap() {
+        let (k, _v) = e.unwrap();
+
+        if let Some(previous) = previous {
+            if &previous >= &k {
+                dbg!(&previous, &k);
+            }
+            assert_eq!(Ordering::Less, previous.cmp(&k));
+        }
+
+        previous = Some(k);
+    }
+}
+
+fn check_slice_order<K, V>(c: &[(K, V)])
+where
+    K: Serialize + DeserializeOwned + PartialOrd + Clone + Ord + Debug + Send + Sync + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+{
+    let mut previous: Option<K> = None;
+    for (k, _v) in c {
+        if let Some(previous) = previous {
+            if &previous >= &k {
+                dbg!(&previous, &k);
+            }
+            assert_eq!(Ordering::Less, previous.cmp(&k));
+        }
+
+        previous = Some(k.clone());
+    }
+}
+
+#[test]
+fn insert_get_static_size() {
+    let nr_entries = 2000;
+
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(config, 2000).unwrap();
+
+    assert_eq!(true, t.is_empty());
+
+    assert_eq!(None, t.insert(0, 42).unwrap());
+
+    assert_eq!(false, t.is_empty());
+    assert_eq!(1, t.len());
+
+    for i in 1..nr_entries {
+        assert_eq!(None, t.insert(i, i).unwrap());
+    }
+
+    assert_eq!(false, t.is_empty());
+    assert_eq!(nr_entries as usize, t.len());
+
+    assert_eq!(true, t.contains_key(&0).unwrap());
+    assert_eq!(Some(42), t.get(&0).unwrap());
+    assert_eq!(Some(42), t.insert(0, 100).unwrap());
+    assert_eq!(Some(100), t.insert(0, 42).unwrap());
+
+    print_tree(&t).unwrap();
+
+    for i in 1..nr_entries {
+        assert_eq!(true, t.contains_key(&i).unwrap());
+
+        let v = t.get(&i).unwrap();
+        assert_eq!(Some(i), v);
+    }
+    assert_eq!(false, t.contains_key(&nr_entries).unwrap());
+    assert_eq!(None, t.get(&nr_entries).unwrap());
+    assert_eq!(false, t.contains_key(&5000).unwrap());
+    assert_eq!(None, t.get(&5000).unwrap());
+
+    // also test a simple swap
+    t.swap(&500, &1000).unwrap();
+    assert_eq!(Some(500), t.get(&1000).unwrap());
+    assert_eq!(Some(1000), t.get(&500).unwrap());
+    t.swap(&500, &1000).unwrap();
+    assert_eq!(Some(500), t.get(&500).unwrap());
+    assert_eq!(Some(1000), t.get(&1000).unwrap());
+}
+
+#[test]
+fn parallel_get() {
+    let nr_entries = 2000;
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(BtreeConfig::default(), 2000).unwrap();
+
+    for i in 0..nr_entries {
+        t.insert(i, i).unwrap();
+    }
+
+    // Get all values in parallel
+    let entries: Result<Vec<Option<u64>>> =
+        (0..nr_entries).into_par_iter().map(|i| t.get(&i)).collect();
+    let entries: Vec<Option<u64>> = entries.unwrap();
+    for i in 0..nr_entries {
+        assert_eq!(Some(i), entries[i as usize]);
+    }
+}
+
+#[test]
+fn range_query_dense() {
+    let nr_entries = 2000;
+
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(config, 2000).unwrap();
+
+    for i in 0..nr_entries {
+        t.insert(i, i).unwrap();
+    }
+
+    print_tree(&t).unwrap();
+
+    // Get sub-range
+    let result: Result<Vec<_>> = t.range(40..1024).unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(984, result.len());
+    assert_eq!((40, 40), result[0]);
+    assert_eq!((1023, 1023), result[983]);
+    check_order(&t, 40..1024);
+
+    let result: Result<Vec<_>> = t
+        .range((Bound::Excluded(40), Bound::Included(1024)))
+        .unwrap()
+        .collect();
+    let result = result.unwrap();
+    assert_eq!(984, result.len());
+    assert_eq!((41, 41), result[0]);
+    assert_eq!((1024, 1024), result[983]);
+    check_order(&t, (Bound::Excluded(40), Bound::Included(1024)));
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.range(..).unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(2000, result.len());
+    assert_eq!((0, 0), result[0]);
+    assert_eq!((1999, 1999), result[1999]);
+    check_order(&t, ..);
+}
+
+#[test]
+fn range_query_sparse() {
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(config, 200).unwrap();
+
+    for i in (0..2000).step_by(10) {
+        t.insert(i, i).unwrap();
+    }
+
+    assert_eq!(200, t.len());
+
+    // Get sub-range
+    let result: Result<Vec<_>> = t.range(40..1200).unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(116, result.len());
+    assert_eq!((40, 40), result[0]);
+    check_order(&t, 40..1200);
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.range(..).unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(200, result.len());
+    assert_eq!((0, 0), result[0]);
+    assert_eq!((1990, 1990), result[199]);
+    check_order(&t, ..);
+
+    // Check different variants of range queries
+    check_order(&t, 40..=1200);
+    check_order(&t, 40..);
+    check_order(&t, ..1024);
+    check_order(&t, ..=1024);
+}
+
+#[test]
+fn into_iterator_dense() {
+    let nr_entries = 2000;
+
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(config, 2000).unwrap();
+
+    for i in 0..nr_entries {
+        t.insert(i, i).unwrap();
+    }
+
+    print_tree(&t).unwrap();
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.into_iter().unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(2000, result.len());
+    for i in 0..nr_entries {
+        assert_eq!((i, i), result[i as usize]);
+    }
+}
+
+#[test]
+fn into_iterator_sparse() {
+    let config = BtreeConfig::default().max_key_size(8).max_value_size(8);
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(config, 200).unwrap();
+
+    for i in (0..2000).step_by(10) {
+        t.insert(i, i).unwrap();
+    }
+
+    assert_eq!(200, t.len());
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.into_iter().unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(200, result.len());
+    assert_eq!((0, 0), result[0]);
+    assert_eq!((1990, 1990), result[199]);
+    check_slice_order(&result);
+}
+
+#[test]
+fn minimal_order() {
+    let nr_entries = 2000u64;
+
+    // Too small orders should create an error
+    assert_eq!(
+        true,
+        InlineKeyBtreeIndex::<u64, u64>::with_capacity(
+            BtreeConfig::default().order(0),
+            nr_entries as usize
+        )
+        .is_err()
+    );
+    assert_eq!(
+        true,
+        InlineKeyBtreeIndex::<u64, u64>::with_capacity(
+            BtreeConfig::default().order(1),
+            nr_entries as usize
+        )
+        .is_err()
+    );
+
+    // Test with the minimal order 2
+    let config = BtreeConfig::default()
+        .max_key_size(8)
+        .max_value_size(8)
+        .order(2);
+
+    let mut t: InlineKeyBtreeIndex<u64, u64> =
+        InlineKeyBtreeIndex::with_capacity(config, nr_entries as usize).unwrap();
+
+    for i in 0..nr_entries {
+        t.insert(i, i).unwrap();
+    }
+
+    // Get sub-range
+    let result: Result<Vec<_>> = t.range(40..1024).unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(984, result.len());
+    assert_eq!((40, 40), result[0]);
+    assert_eq!((1023, 1023), result[983]);
+    check_order(&t, 40..1024);
+
+    // Get complete range
+    let result: Result<Vec<_>> = t.range(..).unwrap().collect();
+    let result = result.unwrap();
+    assert_eq!(2000, result.len());
+    assert_eq!((0, 0), result[0]);
+    assert_eq!((1999, 1999), result[1999]);
+    check_order(&t, ..);
+}
+
+#[test]
+fn sorted_iterator() {
+    let config = BtreeConfig::default().max_key_size(64).max_value_size(64);
+
+    let mut t: InlineKeyBtreeIndex<u8, bool> =
+        InlineKeyBtreeIndex::with_capacity(config, 128).unwrap();
+
+    for a in 0..=255 {
+        t.insert(a, true).unwrap();
+        print_tree(&t).unwrap();
+        println!("--------------");
+    }
+    assert_eq!(256, t.len());
+    print_tree(&t).unwrap();
+    check_order(&t, ..);
+}
+
+#[test]
+fn insert_twice_at_split_point() {
+    let input: Vec<(u32, u32)> = vec![(1, 1), (2, 1), (3, 1), (5, 1), (4, 1), (4, 1)];
+
+    let mut m = BTreeMap::default();
+    let mut t = InlineKeyBtreeIndex::with_capacity(BtreeConfig::default().order(2), 1024).unwrap();
+
+    for (key, value) in input {
+        m.insert(key, value.to_string());
+        t.insert(key, value.to_string()).unwrap();
+
+        print_tree(&t).unwrap();
+        println!("-------------");
+    }
+
+    let m: Vec<_> = m.into_iter().collect();
+    let t: Result<Vec<_>> = t.range(..).unwrap().collect();
+    let t = t.unwrap();
+
+    assert_eq!(m, t);
+}
+
+#[test]
+fn get_after_relocation() {
+    // Create a series of strings in a larger map that forces reloaction
+    let seed = 1971428643569665;
+
+    // Create an index with random entries
+    let n_entries = 2_000;
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
+    let name_faker = fake::faker::name::en::Name();
+
+    let config = BtreeConfig::default().max_key_size(16).max_value_size(64);
+
+    let mut btree: InlineKeyBtreeIndex<u32, String> =
+        InlineKeyBtreeIndex::with_capacity(config, n_entries).unwrap();
+
+    // Insert the strings
+    for _ in 0..n_entries {
+        btree
+            .insert(
+                Faker.fake_with_rng(&mut rng),
+                name_faker.fake_with_rng(&mut rng),
+            )
+            .unwrap();
+    }
+    // Generate and insert a known key/value
+    let search_key: u32 = Faker.fake_with_rng(&mut rng);
+    let search_value: String = name_faker.fake_with_rng(&mut rng);
+
+    btree
+        .insert(search_key.clone(), search_value.clone())
+        .unwrap();
+
+    let found = btree.get(&search_key).unwrap().unwrap();
+    assert_eq!(&search_value, &found);
+}
