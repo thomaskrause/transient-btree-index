@@ -40,7 +40,7 @@ mod btree;
 mod error;
 mod file;
 
-pub use btree::{BtreeConfig, BtreeIndex};
+pub use btree::{BtreeConfig, outside_keys::BtreeIndex};
 pub use error::Error;
 use memmap2::MmapMut;
 

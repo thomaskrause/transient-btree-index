@@ -1,4 +1,3 @@
-use crate::BtreeIndex;
 use debug_tree::TreeBuilder;
 use fake::{Fake, StringFaker};
 use rand::SeedableRng;
