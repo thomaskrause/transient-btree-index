@@ -144,15 +144,15 @@ where
                 // Check if the key is still in range
                 StackEntry::Key { node, idx } => match range.end_bound() {
                     Bound::Included(end) => {
-                        if let Ok(key) = self.get_key(*node, *idx) {
-                            key.as_ref() <= end
+                        if let Ok(key) = self.get_key_owned(*node, *idx) {
+                            &key <= end
                         } else {
                             false
                         }
                     }
                     Bound::Excluded(end) => {
-                        if let Ok(key) = self.get_key(*node, *idx) {
-                            key.as_ref() < end
+                        if let Ok(key) = self.get_key_owned(*node, *idx) {
+                            &key < end
                         } else {
                             false
                         }
