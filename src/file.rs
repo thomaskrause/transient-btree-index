@@ -146,7 +146,16 @@ where
             Ok(b)
         } else {
             let result = self.read_block(block_id)?;
-            Ok(Arc::new(result))
+            let result = Arc::new(result);
+            if let Ok(mut cache) = self.cache.try_lock() {
+                cache.insert(block_id, result.clone());
+                // Remove the oldest entry when capacity is reached
+                if cache.len() > self.block_cache_size {
+                    cache.pop_front();
+                }
+            }
+            Ok(result)
+        
         }
     }
 
